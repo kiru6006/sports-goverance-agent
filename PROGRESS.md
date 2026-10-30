@@ -11,6 +11,7 @@
 | **Phase 4** | Grounded Agent Layer & Action Proposals | ✅ PASSED | Pytest suite: 33/33 tests passed (Policy RAG 100% citation, Read-only tool calling, Non-autonomous action proposal tokens, Replay protection 409) |
 | **Phase 5** | State Adapters & Offline PWA Capabilities | ✅ PASSED | Pytest suite: 37/37 tests passed (State adapter manifests, deterministic conflict resolution matrix, offline batch sync protocol) |
 | **Phase 6** | Pilot Hardening, Security ASVS & Chaos Drill | ✅ PASSED | Pytest suite: 41/41 tests passed (SHA-256 tamper-evident audit hash chain, emergency kill-switch, DPDP Act data erasure, automated chaos drill) |
+| **Phase 7** | Rejection Audit, Contacts Mapping & Direct Messaging | ✅ PASSED | Pytest suite: 44/44 tests passed (Candidate rejection audit & reports, cross-profile contact mapping, support demands & direct chat) |
 
 ---
 
