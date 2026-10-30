@@ -16,7 +16,7 @@ from app.models.entities import (
     Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation,
     Scheme, SchemeRule, EligibilityResult, Opportunity, OpportunityApplication,
     TrainerCertification, Placement, OutboxMessage, Trainer, Institution,
-    PolicyChunk, ActionProposal, StateAdapterManifest, OfflineSyncRecord
+    PolicyChunk, ActionProposal, StateAdapterManifest, OfflineSyncRecord, DirectMessage
 )
 from app.schemas.dto import (
     AthleteSummary, AthleteDetail, AchievementResponse, JourneyEventResponse,
@@ -31,7 +31,8 @@ from app.schemas.dto import (
     AgentChatRequest, AgentChatResponse, CreateProposalRequest, ActionProposalResponse, ExecuteProposalRequest, PolicyCitation,
     StateManifestResponse, SyncBatchRequest, SyncBatchResponse, SyncResultItem,
     AuditChainVerificationResult, AgentKillSwitchStatus, AgentKillSwitchRequest,
-    DPDPErasureResponse, ChaosDrillResult
+    DPDPErasureResponse, ChaosDrillResult,
+    DirectMessageCreateRequest, DirectMessageResponse, ProfileMappingUpdateRequest
 )
 from app.core.agent_service import process_agent_query, search_policy_guidelines
 from app.core.sync_protocol import process_batch_sync
@@ -199,6 +200,8 @@ def list_athletes(
                 db, current_user, "READ_MINOR_RECORD", "Athlete", ath.id, {"district": ath.district_id}
             )
 
+        coach_user = db.query(User).filter(User.id == ath.coach_id).first() if ath.coach_id else None
+
         summaries.append(AthleteSummary(
             id=ath.id,
             kid=ath.kid,
@@ -211,7 +214,19 @@ def list_athletes(
             consent_status=ath.consent_status,
             verification_status=ath.verification_status,
             is_minor=ath.is_minor,
-            is_synthetic=ath.is_synthetic
+            is_synthetic=ath.is_synthetic,
+            rejection_reason=ath.rejection_reason,
+            rejection_report=ath.rejection_report,
+            rejected_by=ath.rejected_by,
+            contact_phone=ath.contact_phone,
+            contact_email=ath.contact_email,
+            support_demands=json.loads(ath.support_demands_json) if ath.support_demands_json else ["Financial Sponsorship", "High-Altitude Training"],
+            services_offered=json.loads(ath.services_offered_json) if ath.services_offered_json else ["Youth Sparring Partner", "Demonstration Athlete"],
+            services_needed=json.loads(ath.services_needed_json) if ath.services_needed_json else ["Sports Physiotherapist", "Strength & Conditioning Coach"],
+            coach_name=coach_user.full_name if coach_user else "Assigned Regional Coach",
+            coach_phone=coach_user.contact_phone if (coach_user and coach_user.contact_phone) else "+91-98220-44911",
+            coach_email=coach_user.contact_email if (coach_user and coach_user.contact_email) else "coach@sports.gov.in",
+            specialist_contact_ref=ath.specialist_contact_ref or "Dr. Anand Kulkarni (SAI Sports Physician - +91-94210-55231)"
         ))
     return summaries
 
@@ -244,6 +259,7 @@ def get_athlete_details(
 
     achievements = db.query(Achievement).filter(Achievement.athlete_id == ath.id).all()
     journey_events = db.query(JourneyEvent).filter(JourneyEvent.athlete_id == ath.id).order_by(JourneyEvent.event_date.desc()).all()
+    coach_user = db.query(User).filter(User.id == ath.coach_id).first() if ath.coach_id else None
 
     return AthleteDetail(
         id=ath.id,
@@ -258,6 +274,18 @@ def get_athlete_details(
         verification_status=ath.verification_status,
         is_minor=ath.is_minor,
         is_synthetic=ath.is_synthetic,
+        rejection_reason=ath.rejection_reason,
+        rejection_report=ath.rejection_report,
+        rejected_by=ath.rejected_by,
+        contact_phone=ath.contact_phone,
+        contact_email=ath.contact_email,
+        support_demands=json.loads(ath.support_demands_json) if ath.support_demands_json else ["Financial Sponsorship", "High-Altitude Training"],
+        services_offered=json.loads(ath.services_offered_json) if ath.services_offered_json else ["Youth Sparring Partner", "Demonstration Athlete"],
+        services_needed=json.loads(ath.services_needed_json) if ath.services_needed_json else ["Sports Physiotherapist", "Strength & Conditioning Coach"],
+        coach_name=coach_user.full_name if coach_user else "Assigned Regional Coach",
+        coach_phone=coach_user.contact_phone if (coach_user and coach_user.contact_phone) else "+91-98220-44911",
+        coach_email=coach_user.contact_email if (coach_user and coach_user.contact_email) else "coach@sports.gov.in",
+        specialist_contact_ref=ath.specialist_contact_ref or "Dr. Anand Kulkarni (SAI Sports Physician - +91-94210-55231)",
         achievements=[
             AchievementResponse(
                 id=a.id,
@@ -319,11 +347,26 @@ def transition_verification_status(
     ath.verifier_id = current_user.id
     ath.verification_notes = req.reason
     ath.verified_at = datetime.datetime.utcnow()
+
+    if req.target_status == "REJECTED":
+        ath.rejection_reason = req.reason
+        ath.rejection_report = req.rejection_report or f"Candidate failed verification criteria: {req.reason}. Technical and biometric audit completed by {current_user.full_name} ({current_user.role})."
+        ath.rejected_by = current_user.full_name
+
+        # Also append to immutable journey timeline
+        erasure_event = JourneyEvent(
+            athlete_id=ath.id,
+            event_type="VERIFICATION_REJECTED",
+            event_date=datetime.date.today(),
+            notes=f"Verification rejected by {current_user.full_name} ({current_user.role}). Reason: {req.reason}"
+        )
+        db.add(erasure_event)
+
     db.commit()
 
     record_audit_event(
         db, current_user, "VERIFICATION_TRANSITION", "Athlete", ath.id,
-        {"from": current_status, "to": req.target_status, "reason": req.reason}
+        {"from": current_status, "to": req.target_status, "reason": req.reason, "rejection_report": ath.rejection_report}
     )
 
     sport = db.query(Sport).filter(Sport.id == ath.primary_sport_id).first()
@@ -333,6 +376,8 @@ def transition_verification_status(
         age_band = get_age_band(dob_date)
     except Exception:
         age_band = "Unknown"
+
+    coach_user = db.query(User).filter(User.id == ath.coach_id).first() if ath.coach_id else None
 
     return AthleteSummary(
         id=ath.id,
@@ -346,7 +391,19 @@ def transition_verification_status(
         consent_status=ath.consent_status,
         verification_status=ath.verification_status,
         is_minor=ath.is_minor,
-        is_synthetic=ath.is_synthetic
+        is_synthetic=ath.is_synthetic,
+        rejection_reason=ath.rejection_reason,
+        rejection_report=ath.rejection_report,
+        rejected_by=ath.rejected_by,
+        contact_phone=ath.contact_phone,
+        contact_email=ath.contact_email,
+        support_demands=json.loads(ath.support_demands_json) if ath.support_demands_json else ["Financial Sponsorship", "High-Altitude Training"],
+        services_offered=json.loads(ath.services_offered_json) if ath.services_offered_json else ["Youth Sparring Partner", "Demonstration Athlete"],
+        services_needed=json.loads(ath.services_needed_json) if ath.services_needed_json else ["Sports Physiotherapist", "Strength & Conditioning Coach"],
+        coach_name=coach_user.full_name if coach_user else "Assigned Regional Coach",
+        coach_phone=coach_user.contact_phone if (coach_user and coach_user.contact_phone) else "+91-98220-44911",
+        coach_email=coach_user.contact_email if (coach_user and coach_user.contact_email) else "coach@sports.gov.in",
+        specialist_contact_ref=ath.specialist_contact_ref or "Dr. Anand Kulkarni (SAI Sports Physician - +91-94210-55231)"
     )
 
 @api_router.post("/registry/athletes/{athlete_id}/journey", response_model=JourneyEventResponse, status_code=status.HTTP_201_CREATED)
@@ -1473,5 +1530,115 @@ def execute_chaos_resilience_drill(
         {"passed": drill_res["passed"], "status": drill_res["status"]}
     )
     return ChaosDrillResult(**drill_res)
+
+# --- DIRECT MESSAGING & PROFILE SERVICE MAPPING ENDPOINTS ---
+
+@api_router.get("/messages", response_model=List[DirectMessageResponse])
+def get_user_messages(
+    athlete_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves direct messages for the current user or related to an athlete context."""
+    q = db.query(DirectMessage).filter(
+        (DirectMessage.sender_id == current_user.username) |
+        (DirectMessage.recipient_id == current_user.username) |
+        (DirectMessage.recipient_id == "ALL")
+    )
+    if athlete_id:
+        q = q.filter(DirectMessage.athlete_context_id == athlete_id)
+    messages = q.order_by(DirectMessage.sent_at.asc()).all()
+    return [
+        DirectMessageResponse(
+            id=m.id,
+            sender_id=m.sender_id,
+            sender_name=m.sender_name,
+            sender_role=m.sender_role,
+            recipient_id=m.recipient_id,
+            recipient_name=m.recipient_name,
+            recipient_role=m.recipient_role,
+            athlete_context_id=m.athlete_context_id,
+            message_text=m.message_text,
+            sent_at=m.sent_at.isoformat(),
+            is_read=m.is_read
+        ) for m in messages
+    ]
+
+@api_router.post("/messages", response_model=DirectMessageResponse)
+def send_direct_message(
+    req: DirectMessageCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Sends a direct message between player, coach, trainer, or sports official."""
+    msg = DirectMessage(
+        sender_id=current_user.username,
+        sender_name=current_user.full_name,
+        sender_role=current_user.role,
+        recipient_id=req.recipient_id,
+        recipient_name=req.recipient_name,
+        recipient_role=req.recipient_role,
+        athlete_context_id=req.athlete_context_id,
+        message_text=req.message_text,
+        sent_at=datetime.datetime.utcnow()
+    )
+    db.add(msg)
+    db.commit()
+
+    record_audit_event(
+        db, current_user, "SEND_DIRECT_MESSAGE", "DirectMessage", msg.id,
+        {"recipient": req.recipient_id, "athlete_context": req.athlete_context_id}
+    )
+
+    return DirectMessageResponse(
+        id=msg.id,
+        sender_id=msg.sender_id,
+        sender_name=msg.sender_name,
+        sender_role=msg.sender_role,
+        recipient_id=msg.recipient_id,
+        recipient_name=msg.recipient_name,
+        recipient_role=msg.recipient_role,
+        athlete_context_id=msg.athlete_context_id,
+        message_text=msg.message_text,
+        sent_at=msg.sent_at.isoformat(),
+        is_read=msg.is_read
+    )
+
+@api_router.put("/registry/athletes/{athlete_id}/profile-mapping", response_model=AthleteDetail)
+def update_athlete_profile_mapping(
+    athlete_id: str,
+    req: ProfileMappingUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Updates support demands, services offered/needed, contacts, and coach/specialist mapping for an athlete."""
+    ath = db.query(Athlete).filter(Athlete.id == athlete_id).first()
+    if not ath:
+        raise HTTPException(status_code=404, detail="Athlete record not found")
+
+    if req.contact_phone is not None:
+        ath.contact_phone = req.contact_phone
+    if req.contact_email is not None:
+        ath.contact_email = req.contact_email
+    if req.support_demands is not None:
+        ath.support_demands_json = json.dumps(req.support_demands)
+    if req.services_offered is not None:
+        ath.services_offered_json = json.dumps(req.services_offered)
+    if req.services_needed is not None:
+        ath.services_needed_json = json.dumps(req.services_needed)
+    if req.specialist_contact_ref is not None:
+        ath.specialist_contact_ref = req.specialist_contact_ref
+    if req.coach_id is not None:
+        ath.coach_id = req.coach_id
+
+    db.commit()
+
+    record_audit_event(
+        db, current_user, "UPDATE_PROFILE_MAPPING", "Athlete", ath.id,
+        {"support_demands": req.support_demands, "services_needed": req.services_needed}
+    )
+
+    return get_athlete_details(athlete_id=athlete_id, current_user=current_user, db=db)
+
 
 

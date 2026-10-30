@@ -26,8 +26,32 @@ def init_db():
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE audit_logs ADD COLUMN record_hash VARCHAR;"))
-            conn.commit()
+            for sql in [
+                "ALTER TABLE audit_logs ADD COLUMN record_hash VARCHAR;",
+                "ALTER TABLE athletes ADD COLUMN rejection_reason TEXT;",
+                "ALTER TABLE athletes ADD COLUMN rejection_report TEXT;",
+                "ALTER TABLE athletes ADD COLUMN rejected_by VARCHAR;",
+                "ALTER TABLE athletes ADD COLUMN contact_phone VARCHAR;",
+                "ALTER TABLE athletes ADD COLUMN contact_email VARCHAR;",
+                "ALTER TABLE athletes ADD COLUMN support_demands_json TEXT;",
+                "ALTER TABLE athletes ADD COLUMN services_offered_json TEXT;",
+                "ALTER TABLE athletes ADD COLUMN services_needed_json TEXT;",
+                "ALTER TABLE athletes ADD COLUMN specialist_contact_ref VARCHAR;",
+                "ALTER TABLE users ADD COLUMN contact_phone VARCHAR;",
+                "ALTER TABLE users ADD COLUMN contact_email VARCHAR;",
+                "ALTER TABLE users ADD COLUMN services_offered_json TEXT;",
+                "ALTER TABLE users ADD COLUMN services_needed_json TEXT;",
+                "ALTER TABLE trainers ADD COLUMN contact_phone VARCHAR;",
+                "ALTER TABLE trainers ADD COLUMN contact_email VARCHAR;",
+                "ALTER TABLE trainers ADD COLUMN specialization VARCHAR;",
+                "ALTER TABLE trainers ADD COLUMN services_offered_json TEXT;",
+                "ALTER TABLE trainers ADD COLUMN services_needed_json TEXT;"
+            ]:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception:
+                    pass
     except Exception:
         pass
 

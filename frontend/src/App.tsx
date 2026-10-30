@@ -24,7 +24,12 @@ import {
   WifiOff,
   ShieldAlert,
   Terminal,
-  Trash2
+  Trash2,
+  MessageSquare,
+  Send,
+  Phone,
+  Mail,
+  FileText
 } from 'lucide-react';
 
 interface UserContext {
@@ -125,8 +130,34 @@ interface Athlete {
   verification_status: string;
   is_minor: boolean;
   is_synthetic: boolean;
+  rejection_reason?: string;
+  rejection_report?: string;
+  rejected_by?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  support_demands?: string[];
+  services_offered?: string[];
+  services_needed?: string[];
+  coach_name?: string;
+  coach_phone?: string;
+  coach_email?: string;
+  specialist_contact_ref?: string;
   achievements?: Achievement[];
   journey_events?: JourneyEvent[];
+}
+
+interface DirectMessage {
+  id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_role: string;
+  recipient_id: string;
+  recipient_name: string;
+  recipient_role: string;
+  athlete_context_id?: string;
+  message_text: string;
+  sent_at: string;
+  is_read: boolean;
 }
 
 interface HeatmapCell {
@@ -262,6 +293,18 @@ export default function App() {
   const [isDrillRunning, setIsDrillRunning] = useState<boolean>(false);
   const [erasureFeedback, setErasureFeedback] = useState<string | null>(null);
 
+  // Direct Messaging & Mapping States
+  const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [activeChatRecipient, setActiveChatRecipient] = useState<{ id: string; name: string; role: string; athlete_id?: string } | null>(null);
+  const [chatInputText, setChatInputText] = useState<string>('');
+  const [showRejectModal, setShowRejectModal] = useState<Athlete | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState<string>('');
+  const [rejectReportInput, setRejectReportInput] = useState<string>('');
+  const [activeMappingEditAthlete, setActiveMappingEditAthlete] = useState<Athlete | null>(null);
+  const [demandInput, setDemandInput] = useState<string>('');
+  const [serviceNeededInput, setServiceNeededInput] = useState<string>('');
+  const [serviceOfferedInput, setServiceOfferedInput] = useState<string>('');
+
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
   const [onboardForm, setOnboardForm] = useState({
@@ -334,8 +377,92 @@ export default function App() {
         headers: { 'x-user-id': user.username }
       });
       if (resSyncRec.ok) setSyncHistory(await resSyncRec.json());
+
+      // Fetch Direct Messages
+      const resMsg = await fetch('/api/v1/messages', {
+        headers: { 'x-user-id': user.username }
+      });
+      if (resMsg.ok) setMessages(await resMsg.json());
     } catch {
       // Local fallback
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeChatRecipient || !chatInputText.trim()) return;
+    try {
+      const res = await fetch('/api/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          recipient_id: activeChatRecipient.id,
+          recipient_name: activeChatRecipient.name,
+          recipient_role: activeChatRecipient.role,
+          athlete_context_id: activeChatRecipient.athlete_id,
+          message_text: chatInputText
+        })
+      });
+      if (res.ok) {
+        const newMsg = await res.json();
+        setMessages(prev => [...prev, newMsg]);
+        setChatInputText('');
+      } else {
+        alert("Failed to send direct message.");
+      }
+    } catch {
+      alert("Network error sending message.");
+    }
+  };
+
+  const handleRejectAthlete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showRejectModal || !rejectReasonInput.trim()) return;
+    try {
+      const res = await fetch(`/api/v1/registry/athletes/${showRejectModal.id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          target_status: 'REJECTED',
+          reason: rejectReasonInput,
+          rejection_report: rejectReportInput || `Candidate rejected: ${rejectReasonInput}. Verification report filed by ${currentUser.full_name}.`
+        })
+      });
+      if (res.ok) {
+        alert("Athlete marked as REJECTED with rejection report stored.");
+        setShowRejectModal(null);
+        setRejectReasonInput('');
+        setRejectReportInput('');
+        fetchData(currentUser);
+      } else {
+        const err = await res.json();
+        alert(`Rejection failed: ${err.detail}`);
+      }
+    } catch {
+      alert("Rejection transition error");
+    }
+  };
+
+  const handleSaveProfileMapping = async (athleteId: string, demands: string[], needed: string[], offered: string[]) => {
+    try {
+      const res = await fetch(`/api/v1/registry/athletes/${athleteId}/profile-mapping`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          support_demands: demands,
+          services_needed: needed,
+          services_offered: offered
+        })
+      });
+      if (res.ok) {
+        alert("Profile services & support demands updated successfully!");
+        fetchData(currentUser);
+        setActiveMappingEditAthlete(null);
+      } else {
+        alert("Update profile mapping failed.");
+      }
+    } catch {
+      alert("Network error saving profile mapping");
     }
   };
 
@@ -1114,12 +1241,29 @@ export default function App() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => viewAthleteProfile(a.id)}
-                            className="text-navy-900 hover:text-amber-600 font-medium text-xs flex items-center gap-1 ml-auto"
-                          >
-                            Profile <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setActiveChatRecipient({
+                                  id: a.contact_email || `${a.kid}@athlete.gov.in`,
+                                  name: a.name,
+                                  role: 'ATHLETE',
+                                  athlete_id: a.id
+                                });
+                              }}
+                              className="text-slate-600 hover:text-navy-900 border border-slate-200 hover:border-slate-300 bg-white px-2 py-1 rounded text-xs flex items-center gap-1 shadow-xs"
+                              title="Direct Peer-to-Peer Chat"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-navy-700" />
+                              <span>Chat</span>
+                            </button>
+                            <button
+                              onClick={() => viewAthleteProfile(a.id)}
+                              className="text-navy-900 hover:text-amber-600 font-medium text-xs flex items-center gap-1"
+                            >
+                              Profile <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1400,10 +1544,19 @@ export default function App() {
                             Request Info
                           </button>
                           <button
-                            onClick={() => handleVerificationAction(ath.id, 'REJECTED', 'Eligibility criteria unverified')}
+                            onClick={() => {
+                              setShowRejectModal(ath);
+                              setRejectReasonInput('');
+                              setRejectReportInput(`Formal Candidate Verification Audit:
+Date: ${new Date().toISOString()}
+Verifier: ${currentUser.full_name} (${currentUser.role})
+District: ${ath.district_id}
+Athlete: ${ath.name} (KID: ${ath.kid})
+Findings: Criteria mismatch with primary documentation. Athlete notified with remedial directives.`);
+                            }}
                             className="bg-red-50 hover:bg-red-100 text-red-700 px-2.5 py-1.5 rounded text-xs font-medium"
                           >
-                            Reject
+                            Reject Candidate
                           </button>
                           <button
                             onClick={() => handleVerificationAction(ath.id, 'VERIFIED', 'All primary documents verified by DSO')}
@@ -1413,6 +1566,21 @@ export default function App() {
                           </button>
                         </>
                       )}
+                      <button
+                        onClick={() => {
+                          setActiveChatRecipient({
+                            id: ath.coach_email || 'coach@demo.gov.in',
+                            name: ath.coach_name || 'Coach / Specialist',
+                            role: 'COACH',
+                            athlete_id: ath.id
+                          });
+                        }}
+                        className="bg-navy-50 hover:bg-navy-100 text-navy-800 border border-navy-200 px-2.5 py-1.5 rounded text-xs font-medium flex items-center gap-1"
+                        title="Chat directly with coach or athlete"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-navy-700" />
+                        <span>Direct Chat</span>
+                      </button>
                     </div>
                   </div>
                 ))
@@ -2349,7 +2517,142 @@ export default function App() {
               </button>
             </div>
 
-            <div className="space-y-2">
+            {/* Rejection Audit Details Banner */}
+            {selectedAthlete.verification_status === 'REJECTED' && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-red-900 flex items-center gap-1.5 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-red-600" /> Candidate Verification Rejected
+                  </span>
+                  <span className="bg-red-200 text-red-800 font-semibold px-2 py-0.5 rounded text-[11px]">
+                    Status: REJECTED
+                  </span>
+                </div>
+                <div className="text-slate-700">
+                  <span className="font-semibold text-slate-900">Rejected By:</span> {selectedAthlete.rejected_by || 'Designated District Sports Officer'}
+                </div>
+                <div className="text-slate-700">
+                  <span className="font-semibold text-slate-900">Reason:</span> {selectedAthlete.rejection_reason || 'Discrepancy in documentation or criteria failure'}
+                </div>
+                {selectedAthlete.rejection_report && (
+                  <div className="mt-2 pt-2 border-t border-red-200">
+                    <span className="font-semibold text-red-900 flex items-center gap-1 mb-1">
+                      <FileText className="w-3.5 h-3.5" /> Official Verification & Audit Report
+                    </span>
+                    <pre className="bg-white p-2.5 rounded border border-red-200 text-[11px] font-mono text-slate-700 whitespace-pre-wrap">
+                      {selectedAthlete.rejection_report}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Profile Status & Services / Needs Matrix */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              <div>
+                <span className="font-bold text-slate-900 flex items-center gap-1 mb-1 text-slate-800">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Support Demands & Needs
+                </span>
+                <p className="text-[11px] text-slate-500 mb-1.5">What the player requires for development:</p>
+                <div className="flex flex-wrap gap-1">
+                  {(selectedAthlete.support_demands || ['Equipment sponsorship', 'High-altitude training']).map((dem, idx) => (
+                    <span key={idx} className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-medium text-[11px]">
+                      {dem}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="font-bold text-slate-900 flex items-center gap-1 mb-1 text-slate-800">
+                  <Briefcase className="w-3.5 h-3.5 text-blue-500" /> Services Offered & Specialization
+                </span>
+                <p className="text-[11px] text-slate-500 mb-1.5">Contribution & mutual assistance:</p>
+                <div className="flex flex-wrap gap-1">
+                  {(selectedAthlete.services_offered || ['Sparring partner', 'Junior clinic demo']).map((off, idx) => (
+                    <span key={idx} className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full font-medium text-[11px]">
+                      {off}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="col-span-1 md:col-span-2 pt-2 border-t border-slate-200 flex justify-between items-center">
+                <div className="text-[11px] text-slate-600">
+                  <span className="font-semibold">Specialist Care Ref:</span> {selectedAthlete.specialist_contact_ref || 'SAI Sports Medicine Centre, Pune'}
+                </div>
+                <button
+                  onClick={() => setActiveMappingEditAthlete(selectedAthlete)}
+                  className="text-xs bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 px-2.5 py-1 rounded font-medium shadow-sm"
+                >
+                  Edit Demands & Services
+                </button>
+              </div>
+            </div>
+
+            {/* Mutual Mapping: Player, Coach, Trainer & Specialist Contacts */}
+            <div className="space-y-2 pt-2 border-t">
+              <h4 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-emerald-600" /> Mapped Team & Contact Roster
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                {/* Athlete Direct Contact Card */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+                  <div className="font-semibold text-slate-900 flex items-center justify-between">
+                    <span>Athlete Contact</span>
+                    <button
+                      onClick={() => {
+                        setActiveChatRecipient({
+                          id: selectedAthlete.contact_email || `${selectedAthlete.kid}@athlete.gov.in`,
+                          name: selectedAthlete.name,
+                          role: 'ATHLETE',
+                          athlete_id: selectedAthlete.id
+                        });
+                      }}
+                      className="text-navy-900 hover:text-amber-600 font-medium flex items-center gap-1 text-[11px] bg-white border px-1.5 py-0.5 rounded shadow-xs"
+                    >
+                      <MessageSquare className="w-3 h-3 text-navy-700" /> Chat
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <Phone className="w-3 h-3 text-slate-400" />
+                    <span>{selectedAthlete.contact_phone || '+91-98200-XXXXX'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <Mail className="w-3 h-3 text-slate-400" />
+                    <span>{selectedAthlete.contact_email || `${selectedAthlete.kid}@athlete.gov.in`}</span>
+                  </div>
+                </div>
+
+                {/* Assigned Coach Contact Card */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+                  <div className="font-semibold text-slate-900 flex items-center justify-between">
+                    <span>Assigned Coach: {selectedAthlete.coach_name || 'Coach Sharma'}</span>
+                    <button
+                      onClick={() => {
+                        setActiveChatRecipient({
+                          id: selectedAthlete.coach_email || 'coach@demo.gov.in',
+                          name: selectedAthlete.coach_name || 'Coach Sharma',
+                          role: 'COACH',
+                          athlete_id: selectedAthlete.id
+                        });
+                      }}
+                      className="text-navy-900 hover:text-amber-600 font-medium flex items-center gap-1 text-[11px] bg-white border px-1.5 py-0.5 rounded shadow-xs"
+                    >
+                      <MessageSquare className="w-3 h-3 text-navy-700" /> Chat
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <Phone className="w-3 h-3 text-slate-400" />
+                    <span>{selectedAthlete.coach_phone || '+91-98111-XXXXX'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <Mail className="w-3 h-3 text-slate-400" />
+                    <span>{selectedAthlete.coach_email || 'coach@sportsauthority.gov.in'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t">
               <h4 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
                 <Award className="w-4 h-4 text-amber-500" /> Verified Achievements
               </h4>
@@ -2391,6 +2694,255 @@ export default function App() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Rejection Modal with Audit Report Input */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-navy-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-start border-b pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-red-900 flex items-center gap-1.5">
+                  <AlertTriangle className="w-5 h-5 text-red-600" /> Reject Candidate Verification
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Athlete: <span className="font-semibold text-slate-800">{showRejectModal.name}</span> ({showRejectModal.kid})
+                </p>
+              </div>
+              <button onClick={() => setShowRejectModal(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRejectAthlete} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Primary Rejection Reason <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., Criteria mismatch in age certificate or achievement proof"
+                  value={rejectReasonInput}
+                  onChange={(e) => setRejectReasonInput(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-slate-500" /> Comprehensive Audit & Verification Report
+                </label>
+                <textarea
+                  rows={4}
+                  value={rejectReportInput}
+                  onChange={(e) => setRejectReportInput(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg outline-none focus:border-red-500 font-mono text-[11px]"
+                  placeholder="Detailed inspection findings and instructions for candidate redressal..."
+                />
+              </div>
+
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-800 text-[11px]">
+                Rejecting will store verifier identity (<span className="font-semibold">{currentUser.full_name}</span>), 
+                lock verification status to REJECTED, and append an irreversible audit journey event.
+              </div>
+
+              <div className="pt-3 border-t flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRejectModal(null)}
+                  className="px-3.5 py-1.5 border rounded-lg hover:bg-slate-50 text-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-sm"
+                >
+                  Confirm Rejection & Store Report
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile Mapping: Demands & Services Modal */}
+      {activeMappingEditAthlete && (
+        <div className="fixed inset-0 bg-navy-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-start border-b pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-slate-900 flex items-center gap-1.5">
+                  <Sparkles className="w-5 h-5 text-amber-500" /> Edit Demands & Services Matrix
+                </h3>
+                <p className="text-xs text-slate-500">{activeMappingEditAthlete.name} ({activeMappingEditAthlete.kid})</p>
+              </div>
+              <button onClick={() => setActiveMappingEditAthlete(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Support Demands / Needs (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={demandInput || (activeMappingEditAthlete.support_demands || []).join(', ')}
+                  onChange={(e) => setDemandInput(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg"
+                  placeholder="Equipment sponsorship, High-altitude training, Nutritionist"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Services Offered (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={serviceOfferedInput || (activeMappingEditAthlete.services_offered || []).join(', ')}
+                  onChange={(e) => setServiceOfferedInput(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg"
+                  placeholder="Sparring partner, Demonstration athlete, Junior clinic demo"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Services Needed (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={serviceNeededInput || (activeMappingEditAthlete.services_needed || []).join(', ')}
+                  onChange={(e) => setServiceNeededInput(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg"
+                  placeholder="Physiotherapy, Biomechanical analysis, Sports psychologist"
+                />
+              </div>
+
+              <div className="pt-3 border-t flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveMappingEditAthlete(null)}
+                  className="px-3.5 py-1.5 border rounded-lg hover:bg-slate-50 text-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const demands = (demandInput || (activeMappingEditAthlete.support_demands || []).join(', '))
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    const needed = (serviceNeededInput || (activeMappingEditAthlete.services_needed || []).join(', '))
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    const offered = (serviceOfferedInput || (activeMappingEditAthlete.services_offered || []).join(', '))
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    handleSaveProfileMapping(activeMappingEditAthlete.id, demands, needed, offered);
+                  }}
+                  className="px-4 py-1.5 bg-navy-900 hover:bg-navy-800 text-amber-300 font-semibold rounded-lg shadow-sm"
+                >
+                  Save Matrix
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Direct Messaging Chat Drawer */}
+      {activeChatRecipient && (
+        <div className="fixed bottom-4 right-4 z-50 w-96 bg-white rounded-2xl shadow-2xl border border-slate-300 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
+          {/* Chat Header */}
+          <div className="bg-navy-900 text-white p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-amber-400/20 text-amber-300 flex items-center justify-center font-bold text-xs">
+                {activeChatRecipient.name.charAt(0)}
+              </div>
+              <div>
+                <div className="font-bold text-xs text-amber-300 flex items-center gap-1.5">
+                  {activeChatRecipient.name}
+                  <span className="text-[10px] bg-navy-800 px-1.5 py-0.2 rounded font-normal text-slate-300">
+                    {activeChatRecipient.role}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400">Direct Sports Network Channel</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveChatRecipient(null)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Chat History */}
+          <div className="p-3 bg-slate-50 flex-1 h-64 overflow-y-auto space-y-2.5 text-xs">
+            {messages.filter(m => 
+              (m.recipient_id === activeChatRecipient.id || m.sender_id === activeChatRecipient.id || 
+               (m.athlete_context_id && m.athlete_context_id === activeChatRecipient.athlete_id))
+            ).length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-4">
+                <MessageSquare className="w-8 h-8 mb-1.5 opacity-40 text-navy-800" />
+                <p className="font-medium text-slate-600">Direct Channel Active</p>
+                <p className="text-[11px]">Direct peer-to-peer message between player, coach and official.</p>
+              </div>
+            ) : (
+              messages
+                .filter(m => 
+                  (m.recipient_id === activeChatRecipient.id || m.sender_id === activeChatRecipient.id || 
+                   (m.athlete_context_id && m.athlete_context_id === activeChatRecipient.athlete_id))
+                )
+                .map(msg => {
+                  const isMe = msg.sender_id === currentUser.username;
+                  return (
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[85%] rounded-xl p-2.5 text-xs ${
+                        isMe 
+                          ? 'bg-navy-900 text-amber-100 rounded-br-none shadow-xs' 
+                          : 'bg-white text-slate-800 border border-slate-200 rounded-bl-none shadow-xs'
+                      }`}>
+                        <div className="text-[10px] opacity-75 mb-0.5 font-semibold">
+                          {msg.sender_name} ({msg.sender_role})
+                        </div>
+                        <div>{msg.message_text}</div>
+                      </div>
+                      <span className="text-[9px] text-slate-400 mt-0.5 px-1">
+                        {new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+
+          {/* Chat Input */}
+          <form onSubmit={handleSendMessage} className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-1.5">
+            <input
+              type="text"
+              placeholder={`Message ${activeChatRecipient.name}...`}
+              value={chatInputText}
+              onChange={(e) => setChatInputText(e.target.value)}
+              className="flex-1 p-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-navy-900"
+            />
+            <button
+              type="submit"
+              disabled={!chatInputText.trim()}
+              className="bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-amber-300 p-2 rounded-lg"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </form>
         </div>
       )}
 

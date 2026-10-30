@@ -15,6 +15,10 @@ class User(Base):
     state_id = Column(String, nullable=True)
     district_id = Column(String, nullable=True)
     full_name = Column(String, nullable=False)
+    contact_phone = Column(String, nullable=True)
+    contact_email = Column(String, nullable=True)
+    services_offered_json = Column(Text, nullable=True)
+    services_needed_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class Sport(Base):
@@ -44,6 +48,15 @@ class Athlete(Base):
     coach_id = Column(String, ForeignKey("users.id"), nullable=True)
     verification_notes = Column(Text, nullable=True)
     verified_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    rejection_report = Column(Text, nullable=True)
+    rejected_by = Column(String, ForeignKey("users.id"), nullable=True)
+    contact_phone = Column(String, nullable=True)
+    contact_email = Column(String, nullable=True)
+    support_demands_json = Column(Text, nullable=True)
+    services_offered_json = Column(Text, nullable=True)
+    services_needed_json = Column(Text, nullable=True)
+    specialist_contact_ref = Column(String, nullable=True)
     is_minor = Column(Boolean, default=False)
     is_synthetic = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -290,6 +303,11 @@ class Trainer(Base):
     district_id = Column(String, nullable=False)
     sports_json = Column(Text, nullable=False)
     certifications_json = Column(Text, nullable=False)
+    contact_phone = Column(String, nullable=True)
+    contact_email = Column(String, nullable=True)
+    specialization = Column(String, nullable=True)
+    services_offered_json = Column(Text, nullable=True)
+    services_needed_json = Column(Text, nullable=True)
     verification_status = Column(String, default="VERIFIED")
     is_synthetic = Column(Boolean, default=True)
 
@@ -362,3 +380,18 @@ class AuditLog(Base):
     payload_hash = Column(String, nullable=False)
     prev_hash = Column(String, nullable=True)
     record_hash = Column(String, nullable=True)
+
+class DirectMessage(Base):
+    __tablename__ = "direct_messages"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    sender_id = Column(String, nullable=False)        # username or athlete_id
+    sender_name = Column(String, nullable=False)
+    sender_role = Column(String, nullable=False)      # ATHLETE, COACH, TRAINER, DISTRICT_OFFICER, etc.
+    recipient_id = Column(String, nullable=False)     # username or athlete_id
+    recipient_name = Column(String, nullable=False)
+    recipient_role = Column(String, nullable=False)
+    athlete_context_id = Column(String, nullable=True) # if conversation is about a specific athlete
+    message_text = Column(Text, nullable=False)
+    sent_at = Column(DateTime, default=datetime.datetime.utcnow)
+    is_read = Column(Boolean, default=False)
+

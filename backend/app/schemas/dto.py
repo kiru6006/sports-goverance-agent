@@ -7,6 +7,10 @@ class UserResponse(BaseModel):
     state_id: Optional[str]
     district_id: Optional[str]
     full_name: str
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    services_offered: List[str] = []
+    services_needed: List[str] = []
 
     class Config:
         from_attributes = True
@@ -24,6 +28,20 @@ class AthleteSummary(BaseModel):
     verification_status: str
     is_minor: bool
     is_synthetic: bool
+    # Candidate Rejection details & reports
+    rejection_reason: Optional[str] = None
+    rejection_report: Optional[str] = None
+    rejected_by: Optional[str] = None
+    # Contact & Service Mapping
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    support_demands: List[str] = []
+    services_offered: List[str] = []
+    services_needed: List[str] = []
+    coach_name: Optional[str] = None
+    coach_phone: Optional[str] = None
+    coach_email: Optional[str] = None
+    specialist_contact_ref: Optional[str] = None
 
 class AchievementResponse(BaseModel):
     id: str
@@ -77,6 +95,7 @@ class DuplicateCheckResponse(BaseModel):
 class VerificationTransitionRequest(BaseModel):
     target_status: str
     reason: str
+    rejection_report: Optional[str] = None
 
 class JourneyEventCreateRequest(BaseModel):
     event_type: str
@@ -416,3 +435,34 @@ class ChaosDrillResult(BaseModel):
     passed: bool
     checks: List[Dict[str, Any]]
     executed_at: str
+
+# --- DIRECT MESSAGING & PROFILE MAPPING DTOs ---
+
+class DirectMessageCreateRequest(BaseModel):
+    recipient_id: str
+    recipient_name: str
+    recipient_role: str
+    message_text: str
+    athlete_context_id: Optional[str] = None
+
+class DirectMessageResponse(BaseModel):
+    id: str
+    sender_id: str
+    sender_name: str
+    sender_role: str
+    recipient_id: str
+    recipient_name: str
+    recipient_role: str
+    athlete_context_id: Optional[str]
+    message_text: str
+    sent_at: str
+    is_read: bool
+
+class ProfileMappingUpdateRequest(BaseModel):
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    support_demands: Optional[List[str]] = None
+    services_offered: Optional[List[str]] = None
+    services_needed: Optional[List[str]] = None
+    specialist_contact_ref: Optional[str] = None
+    coach_id: Optional[str] = None
