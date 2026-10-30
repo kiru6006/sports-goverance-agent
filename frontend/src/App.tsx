@@ -33,7 +33,11 @@ import {
   FileText,
   Menu,
   ChevronDown,
-  ChevronLeft
+  ChevronLeft,
+  Search,
+  Compass,
+  Building,
+  ExternalLink
 } from 'lucide-react';
 
 interface UserContext {
@@ -323,6 +327,35 @@ export default function App() {
   const [demandInput, setDemandInput] = useState<string>('');
   const [serviceNeededInput, setServiceNeededInput] = useState<string>('');
   const [serviceOfferedInput, setServiceOfferedInput] = useState<string>('');
+
+  // Go Copilot Interactive Search & Entity Navigation State
+  const [isCopilotOpen, setIsCopilotOpen] = useState<boolean>(false);
+  const [copilotSearchQuery, setCopilotSearchQuery] = useState<string>('');
+  const [copilotChatHistory, setCopilotChatHistory] = useState<Array<{
+    id: string;
+    sender: 'user' | 'copilot';
+    text: string;
+    timestamp: string;
+    links?: Array<{
+      type: 'athlete' | 'facility' | 'scheme' | 'location';
+      title: string;
+      subtitle: string;
+      id: string;
+      actionTab?: 'registry' | 'facilities' | 'schemes' | 'diagnosis';
+    }>;
+  }>>([
+    {
+      id: 'welcome-1',
+      sender: 'copilot',
+      text: 'Hello! I am your NSIS Go Copilot. Ask me about athletes, sports facilities, district locations, institutions, or state schemes to get instant intelligence and direct profile links.',
+      timestamp: 'Just now',
+      links: [
+        { type: 'location', title: 'Pune District (MH-PUN)', subtitle: 'Maharashtra Central Sports Hub · 18 BOX Athletes', id: 'MH-PUN', actionTab: 'diagnosis' },
+        { type: 'facility', title: 'Balewadi High Performance Centre', subtitle: 'District Stadium & Boxing Ring · 320 hrs/mo', id: 'fac-1', actionTab: 'facilities' },
+        { type: 'scheme', title: 'Khelo India Scholarship (KIS)', subtitle: 'National Direct DBT Scheme · Verified Status', id: 'sch-1', actionTab: 'schemes' }
+      ]
+    }
+  ]);
 
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -769,9 +802,142 @@ export default function App() {
         headers: { 'x-user-id': currentUser.username }
       });
       if (res.ok) setSelectedAthlete(await res.json());
-    } catch (err) {
-      console.error(err);
+      else {
+        // Fallback to local mock athlete if offline
+        const localAth = athletes.find(a => a.id === athId || a.kid === athId);
+        if (localAth) setSelectedAthlete(localAth);
+      }
+    } catch {
+      const localAth = athletes.find(a => a.id === athId || a.kid === athId);
+      if (localAth) setSelectedAthlete(localAth);
     }
+  };
+
+  const handleCopilotSearch = (queryText: string) => {
+    const q = queryText.trim().toLowerCase();
+    if (!q) return;
+
+    const userMsgId = `user-${Date.now()}`;
+    const copilotMsgId = `copilot-${Date.now()}`;
+
+    // Search athletes
+    const matchedAthletes = athletes.filter(a => 
+      a.name.toLowerCase().includes(q) || 
+      a.kid.toLowerCase().includes(q) || 
+      a.sport_name.toLowerCase().includes(q) ||
+      a.district_id.toLowerCase().includes(q)
+    );
+
+    // Search facilities / institutes
+    const matchedFacilities = facilities.filter(f => 
+      f.name.toLowerCase().includes(q) || 
+      f.type.toLowerCase().includes(q) || 
+      f.district_id.toLowerCase().includes(q) ||
+      f.sports.some(s => s.toLowerCase().includes(q))
+    );
+
+    // Search schemes
+    const matchedSchemes = schemes.filter(s => 
+      s.name.toLowerCase().includes(q) || 
+      s.code.toLowerCase().includes(q) || 
+      s.owner_body.toLowerCase().includes(q)
+    );
+
+    const links: Array<{
+      type: 'athlete' | 'facility' | 'scheme' | 'location';
+      title: string;
+      subtitle: string;
+      id: string;
+      actionTab?: 'registry' | 'facilities' | 'schemes' | 'diagnosis';
+    }> = [];
+
+    matchedAthletes.slice(0, 3).forEach(ath => {
+      links.push({
+        type: 'athlete',
+        title: `${ath.name} (${ath.kid})`,
+        subtitle: `${ath.sport_name} · ${ath.age_band} · ${ath.district_id} · ${ath.verification_status}`,
+        id: ath.id,
+        actionTab: 'registry'
+      });
+    });
+
+    matchedFacilities.slice(0, 2).forEach(fac => {
+      links.push({
+        type: 'facility',
+        title: fac.name,
+        subtitle: `${fac.type} · ${fac.district_id} · ${fac.open_hours_monthly} hrs/mo`,
+        id: fac.id,
+        actionTab: 'facilities'
+      });
+    });
+
+    matchedSchemes.slice(0, 2).forEach(sch => {
+      links.push({
+        type: 'scheme',
+        title: `${sch.name} (${sch.code})`,
+        subtitle: `${sch.level} Level · ${sch.owner_body}`,
+        id: sch.id,
+        actionTab: 'schemes'
+      });
+    });
+
+    // Location / District match
+    if (q.includes('pune') || q.includes('mh-pun') || q.includes('maharashtra') || q.includes('nagpur')) {
+      links.push({
+        type: 'location',
+        title: 'Maharashtra Sports Grid (MH)',
+        subtitle: 'Pune (MH-PUN) & Nagpur (MH-NAG) · Heatmap & Gaps',
+        id: 'MH-PUN',
+        actionTab: 'diagnosis'
+      });
+    }
+
+    let replyText = '';
+    if (links.length > 0) {
+      replyText = `Found ${links.length} matching entity record(s) for "${queryText}". Click any link below to directly open the profile, location, or institution:`;
+    } else {
+      replyText = `I searched the NSIS network registry for "${queryText}". No exact match was found in the current scoped database. Try searching for "Aarav", "Pooja", "Balewadi", "Boxing", "Scholarship", or "Pune".`;
+      links.push({
+        type: 'location',
+        title: 'Explore District Pipeline Heatmap',
+        subtitle: 'Navigate to Sports Pipeline Gaps across all districts',
+        id: 'MH-PUN',
+        actionTab: 'diagnosis'
+      });
+    }
+
+    setCopilotChatHistory(prev => [
+      ...prev,
+      {
+        id: userMsgId,
+        sender: 'user',
+        text: queryText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      },
+      {
+        id: copilotMsgId,
+        sender: 'copilot',
+        text: replyText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        links
+      }
+    ]);
+
+    setCopilotSearchQuery('');
+  };
+
+  const handleCopilotLinkClick = (link: {
+    type: string;
+    id: string;
+    actionTab?: 'registry' | 'facilities' | 'schemes' | 'diagnosis';
+  }) => {
+    if (link.actionTab) {
+      setActiveTab(link.actionTab);
+    }
+    if (link.type === 'athlete') {
+      viewAthleteProfile(link.id);
+    }
+    setIsCopilotOpen(false);
   };
 
   const checkDuplicateAndSubmit = async (e: React.FormEvent) => {
@@ -1250,6 +1416,16 @@ export default function App() {
                   ))}
                 </select>
               </div>
+
+              {/* Go Copilot Search & Intelligence Button */}
+              <button
+                onClick={() => setIsCopilotOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs shadow-xs hover:shadow-sm transition-all transform hover:-translate-y-0.5 cursor-pointer"
+                title="Open Go Copilot intelligent entity search & assistant"
+              >
+                <Compass className="w-4 h-4 text-slate-950 animate-spin-slow" />
+                <span className="font-extrabold tracking-wide">Go Copilot</span>
+              </button>
             </div>
           </div>
         </header>
@@ -3233,6 +3409,161 @@ Findings: Criteria mismatch with primary documentation. Athlete notified with re
               <Send className="w-3.5 h-3.5" />
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Go Copilot Interactive Search & Entity Navigation Modal */}
+      {isCopilotOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            
+            {/* Copilot Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-navy-950 p-4 text-white flex items-center justify-between border-b border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-extrabold text-base tracking-wide text-white">Go Copilot</h3>
+                    <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                      Network Intelligence
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    Search athletes, institutions, districts, facilities & schemes
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCopilotOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700/60 transition-colors"
+                title="Close Go Copilot"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Suggestion Chips */}
+            <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 overflow-x-auto text-xs">
+              <span className="text-slate-500 font-semibold shrink-0">Try searching:</span>
+              <button
+                onClick={() => handleCopilotSearch('Aarav Shinde')}
+                className="bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 px-2.5 py-1 rounded-full shrink-0 transition-colors"
+              >
+                👤 Player: Aarav Shinde
+              </button>
+              <button
+                onClick={() => handleCopilotSearch('Balewadi High Performance')}
+                className="bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 px-2.5 py-1 rounded-full shrink-0 transition-colors"
+              >
+                🏟️ Institute: Balewadi
+              </button>
+              <button
+                onClick={() => handleCopilotSearch('Pune')}
+                className="bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 px-2.5 py-1 rounded-full shrink-0 transition-colors"
+              >
+                📍 Location: Pune
+              </button>
+              <button
+                onClick={() => handleCopilotSearch('Khelo India Scholarship')}
+                className="bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 px-2.5 py-1 rounded-full shrink-0 transition-colors"
+              >
+                📜 Scheme: KIS
+              </button>
+            </div>
+
+            {/* Copilot Chat Feed */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+              {copilotChatHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className={`flex flex-col ${item.sender === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl p-3.5 text-xs ${
+                      item.sender === 'user'
+                        ? 'bg-navy-900 text-white rounded-br-xs shadow-xs'
+                        : 'bg-white border border-slate-200 text-slate-800 rounded-bl-xs shadow-xs'
+                    }`}
+                  >
+                    <p className="leading-relaxed font-medium">{item.text}</p>
+                    
+                    {/* Render Interactive Entity Links */}
+                    {item.links && item.links.length > 0 && (
+                      <div className="mt-3 space-y-2 pt-2 border-t border-slate-100">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Direct Entity Links:
+                        </span>
+                        <div className="grid grid-cols-1 gap-2">
+                          {item.links.map((link, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleCopilotLinkClick(link)}
+                              className="w-full text-left bg-slate-50 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-400 p-2.5 rounded-xl transition-all flex items-center justify-between group shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 group-hover:text-amber-600">
+                                  {link.type === 'athlete' && <Users className="w-4 h-4" />}
+                                  {link.type === 'facility' && <Building className="w-4 h-4" />}
+                                  {link.type === 'scheme' && <Award className="w-4 h-4" />}
+                                  {link.type === 'location' && <MapPin className="w-4 h-4" />}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-900 group-hover:text-amber-900 flex items-center gap-1.5">
+                                    <span>{link.title}</span>
+                                    <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-semibold uppercase">
+                                      {link.type}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 font-medium">
+                                    {link.subtitle}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 text-slate-400 group-hover:text-amber-600 font-semibold text-[11px]">
+                                <span>Open</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 px-1">{item.timestamp}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Copilot Search Input Bar */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCopilotSearch(copilotSearchQuery);
+              }}
+              className="p-3 bg-white border-t border-slate-200 flex items-center gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search player profiles, location, institutes or schemes..."
+                  value={copilotSearchQuery}
+                  onChange={(e) => setCopilotSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-medium"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!copilotSearchQuery.trim()}
+                className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 disabled:opacity-40 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <span>Ask</span>
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
