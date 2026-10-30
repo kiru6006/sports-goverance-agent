@@ -832,22 +832,22 @@ export default function App() {
 
       {/* Left-Side Auditable Navigation Bar */}
       <aside 
-        className={`fixed lg:sticky top-0 h-screen z-50 bg-navy-950 text-white flex flex-col border-r border-navy-800 transition-all duration-300 ease-in-out select-none shadow-xl ${
+        className={`fixed lg:sticky top-0 h-screen z-50 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800 transition-all duration-300 ease-in-out select-none shadow-2xl ${
           isMobileSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0'
         } ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'}`}
       >
         {/* Brand & Collapse Header */}
-        <div className="p-4 border-b border-navy-800 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center space-x-3 overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center shrink-0 shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center shrink-0 shadow-inner">
               <ShieldCheck className="w-6 h-6 text-amber-400" />
             </div>
             {(!isSidebarCollapsed || isMobileSidebarOpen) && (
               <div className="truncate">
-                <h1 className="text-base font-extrabold tracking-tight text-white flex items-center gap-1.5">
-                  TrackNet <span className="text-[10px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-400/30 font-semibold tracking-normal">NSIS</span>
+                <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
+                  TrackNet <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-semibold tracking-normal border border-amber-500/30">NSIS</span>
                 </h1>
-                <p className="text-[11px] text-slate-400 truncate">Sports Governance Network</p>
+                <p className="text-[11px] text-slate-400 truncate">Sports Governance Platform</p>
               </div>
             )}
           </div>
@@ -860,7 +860,7 @@ export default function App() {
                 setIsSidebarCollapsed(!isSidebarCollapsed);
               }
             }}
-            className="p-1.5 text-slate-400 hover:text-amber-300 hover:bg-navy-900 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
             title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
           >
             {isSidebarCollapsed ? <ChevronRight className="w-5 h-5 hidden lg:block" /> : <ChevronLeft className="w-5 h-5 hidden lg:block" />}
@@ -870,34 +870,34 @@ export default function App() {
 
         {/* User Scope & Active Role Badge */}
         {(!isSidebarCollapsed || isMobileSidebarOpen) && (
-          <div className="px-4 py-3 bg-navy-900/60 border-b border-navy-800/80 space-y-2">
+          <div className="px-4 py-3 bg-slate-950/40 border-b border-slate-800/60 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-400 font-medium">Active Jurisdiction</span>
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded font-mono font-bold">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Active Scope</span>
+              <span className="text-[10px] bg-amber-400/15 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full font-mono font-medium">
                 {currentUser.district_id || currentUser.state_id || 'ALL INDIA'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-300">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-xs font-bold text-amber-300 shadow-xs">
                 {currentUser.full_name.charAt(0)}
               </div>
               <div className="truncate text-xs">
-                <div className="font-semibold text-slate-200 truncate">{currentUser.full_name}</div>
-                <div className="text-[10px] text-slate-400">{currentUser.role}</div>
+                <div className="font-semibold text-slate-100 truncate">{currentUser.full_name}</div>
+                <div className="text-[10px] text-slate-400 font-medium">{currentUser.role}</div>
               </div>
             </div>
           </div>
         )}
 
         {/* Categorized Nav Menu */}
-        <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 text-xs font-medium scrollbar-thin scrollbar-thumb-navy-800">
+        <div className="flex-1 overflow-y-auto py-3 px-3 space-y-5 text-xs font-medium scrollbar-thin">
           
           {/* CATEGORY 1: Talent Pipeline & Verification */}
           <div className="space-y-1">
             {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
               <button 
                 onClick={() => toggleCategory('talent_pipeline')}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+                className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
               >
                 <span className="flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5 text-amber-400" /> Talent & Registry
@@ -905,23 +905,23 @@ export default function App() {
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['talent_pipeline'] ? 'rotate-180' : ''}`} />
               </button>
             ) : (
-              <div className="w-full h-px bg-navy-800 my-2" />
+              <div className="w-full h-px bg-slate-800 my-2" />
             )}
 
             {(expandedCategories['talent_pipeline'] || isSidebarCollapsed) && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {/* Pipeline Diagnosis */}
                 <button
                   onClick={() => { setActiveTab('diagnosis'); setIsMobileSidebarOpen(false); }}
                   title="Pipeline Diagnosis & Gaps"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'diagnosis'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <Activity className={`w-4 h-4 shrink-0 ${activeTab === 'diagnosis' ? 'text-amber-400' : 'text-slate-400'}`} />
-                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Pipeline Diagnosis & Gaps</span>}
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Pipeline Diagnosis</span>}
                 </button>
 
                 {/* Unified Registry */}
@@ -930,15 +930,15 @@ export default function App() {
                   title="Unified Athlete Registry"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'registry'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <Users className={`w-4 h-4 shrink-0 ${activeTab === 'registry' ? 'text-amber-400' : 'text-slate-400'}`} />
                   {(!isSidebarCollapsed || isMobileSidebarOpen) && (
                     <div className="flex-1 flex items-center justify-between">
                       <span>Unified Registry</span>
-                      <span className="text-[10px] bg-navy-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">
+                      <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.2 rounded font-mono">
                         {athletes.length}
                       </span>
                     </div>
@@ -951,8 +951,8 @@ export default function App() {
                   title="Verification Queue"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'verification'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <CheckCircle className={`w-4 h-4 shrink-0 ${activeTab === 'verification' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -960,7 +960,7 @@ export default function App() {
                     <div className="flex-1 flex items-center justify-between">
                       <span>Verification Queue</span>
                       {athletes.filter(a => a.verification_status !== 'VERIFIED').length > 0 && (
-                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold px-1.5 py-0.2 rounded text-[10px]">
+                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
                           {athletes.filter(a => a.verification_status !== 'VERIFIED').length}
                         </span>
                       )}
@@ -974,8 +974,8 @@ export default function App() {
                   title="Schemes & Opportunities"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'schemes'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <BookOpen className={`w-4 h-4 shrink-0 ${activeTab === 'schemes' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -990,27 +990,27 @@ export default function App() {
             {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
               <button 
                 onClick={() => toggleCategory('infrastructure')}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+                className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
               >
                 <span className="flex items-center gap-1.5">
-                  <Package className="w-3.5 h-3.5 text-blue-400" /> Infrastructure & Assets
+                  <Package className="w-3.5 h-3.5 text-blue-400" /> Infrastructure
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['infrastructure'] ? 'rotate-180' : ''}`} />
               </button>
             ) : (
-              <div className="w-full h-px bg-navy-800 my-2" />
+              <div className="w-full h-px bg-slate-800 my-2" />
             )}
 
             {(expandedCategories['infrastructure'] || isSidebarCollapsed) && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {/* Equipment Inventory */}
                 <button
                   onClick={() => { setActiveTab('equipment'); setIsMobileSidebarOpen(false); }}
                   title="Equipment Inventory"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'equipment'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <Package className={`w-4 h-4 shrink-0 ${activeTab === 'equipment' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -1018,7 +1018,7 @@ export default function App() {
                     <div className="flex-1 flex items-center justify-between">
                       <span>Equipment Inventory</span>
                       {overdueLoans.length > 0 && (
-                        <span className="bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.2 rounded text-[10px] font-bold">
+                        <span className="bg-red-500/20 text-red-300 border border-red-500/40 px-1.5 py-0.2 rounded font-bold text-[10px]">
                           {overdueLoans.length} Overdue
                         </span>
                       )}
@@ -1032,8 +1032,8 @@ export default function App() {
                   title="Facilities & Venues"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'facilities'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <MapPin className={`w-4 h-4 shrink-0 ${activeTab === 'facilities' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -1048,31 +1048,31 @@ export default function App() {
             {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
               <button 
                 onClick={() => toggleCategory('ai_ecosystem')}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+                className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
               >
                 <span className="flex items-center gap-1.5">
-                  <Bot className="w-3.5 h-3.5 text-cyan-400" /> AI & Operations
+                  <Bot className="w-3.5 h-3.5 text-cyan-400" /> AI & Security
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['ai_ecosystem'] ? 'rotate-180' : ''}`} />
               </button>
             ) : (
-              <div className="w-full h-px bg-navy-800 my-2" />
+              <div className="w-full h-px bg-slate-800 my-2" />
             )}
 
             {(expandedCategories['ai_ecosystem'] || isSidebarCollapsed) && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {/* AI Agent & Policy RAG */}
                 <button
                   onClick={() => { setActiveTab('agent'); setIsMobileSidebarOpen(false); }}
                   title="AI Agent & Policy RAG"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'agent'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <Bot className={`w-4 h-4 shrink-0 ${activeTab === 'agent' ? 'text-amber-400' : 'text-slate-400'}`} />
-                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>AI Agent & Policy RAG</span>}
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>AI Policy Agent</span>}
                 </button>
 
                 {/* State Adapters & Offline PWA */}
@@ -1081,8 +1081,8 @@ export default function App() {
                   title="State Adapters & Offline PWA"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'adapters'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <Globe className={`w-4 h-4 shrink-0 ${activeTab === 'adapters' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -1090,7 +1090,7 @@ export default function App() {
                     <div className="flex-1 flex items-center justify-between">
                       <span>State Adapters & PWA</span>
                       {offlineQueue.length > 0 && (
-                        <span className="bg-amber-400 text-navy-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
+                        <span className="bg-amber-400 text-slate-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
                           {offlineQueue.length}
                         </span>
                       )}
@@ -1109,8 +1109,8 @@ export default function App() {
                   title="Security & ASVS Resilience"
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                     activeTab === 'security'
-                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/35 font-semibold shadow-xs'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
                   }`}
                 >
                   <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'security' ? 'text-amber-400' : 'text-slate-400'}`} />
@@ -1121,8 +1121,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Sidebar Footer Controls: Collapse Button & Direct Chat Shortcut */}
-        <div className="p-3 border-t border-navy-800 bg-navy-900/40 space-y-2">
+        {/* Sidebar Footer Controls: Direct Chat Shortcut */}
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/50">
           <button
             onClick={() => {
               setActiveChatRecipient({
@@ -1132,28 +1132,28 @@ export default function App() {
               });
               setIsMobileSidebarOpen(false);
             }}
-            className={`w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-300 rounded-xl transition-colors font-medium text-xs ${
+            className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl transition-all font-semibold text-xs shadow-xs ${
               isSidebarCollapsed && !isMobileSidebarOpen ? 'px-0' : ''
             }`}
             title="Open Sports Network Messaging"
           >
-            <MessageSquare className="w-4 h-4" />
+            <MessageSquare className="w-4 h-4 text-amber-400" />
             {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Direct Messaging</span>}
           </button>
         </div>
       </aside>
 
       {/* Main Workspace with Top Header Bar */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Sleek Top Bar with Role Switcher, Offline Indicator & Mobile Nav Trigger */}
-        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-3 shadow-xs">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        {/* Crisp Top Bar with High Contrast Header */}
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-3.5 shadow-xs">
           <div className="flex items-center justify-between gap-4">
             
             {/* Left: Mobile Menu Toggle & Current Section Title */}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-navy-900 hover:bg-slate-100 transition-colors"
+                className="lg:hidden p-2 rounded-lg text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors border border-slate-200"
                 title="Open Navigation Menu"
               >
                 <Menu className="w-5 h-5" />
@@ -1170,7 +1170,7 @@ export default function App() {
                   {activeTab === 'adapters' && 'State Adapters & Offline PWA'}
                   {activeTab === 'security' && 'Security, Kill-Switch & Resilience'}
                 </h2>
-                <p className="text-[11px] text-slate-500 hidden sm:block">
+                <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
                   National Sports Information System · Microservices Architecture
                 </p>
               </div>
@@ -1179,26 +1179,26 @@ export default function App() {
             {/* Right: Language, Offline Mode Simulator, Role & Scope Context */}
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Language Switcher */}
-              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-1 text-xs text-slate-700">
-                <Globe className="w-3.5 h-3.5 ml-1 text-amber-600" />
+              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 font-medium shadow-2xs">
+                <Globe className="w-3.5 h-3.5 mr-1 text-slate-500" />
                 <select
-                  className="bg-transparent text-slate-800 font-semibold rounded px-1.5 py-0.5 outline-none border-none text-xs"
+                  className="bg-transparent text-slate-800 font-semibold outline-none border-none text-xs cursor-pointer"
                   value={currentLang}
                   onChange={(e) => setCurrentLang(e.target.value as any)}
                 >
-                  <option value="en">EN</option>
-                  <option value="hi">HI</option>
-                  <option value="mr">MR</option>
+                  <option value="en">English (EN)</option>
+                  <option value="hi">हिन्दी (HI)</option>
+                  <option value="mr">मराठी (MR)</option>
                 </select>
               </div>
 
               {/* Offline PWA Simulator Toggle */}
               <button
                 onClick={() => setIsOfflineMode(!isOfflineMode)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border shadow-2xs ${
                   isOfflineMode 
-                    ? 'bg-amber-500/10 text-amber-700 border-amber-400/50 shadow-xs'
-                    : 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-300'
                 }`}
                 title="Simulate offline field connectivity for PWA"
               >
@@ -1216,10 +1216,10 @@ export default function App() {
               </button>
 
               {/* Role Switcher */}
-              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-1 text-xs">
-                <span className="text-slate-400 px-1 hidden md:inline">Role:</span>
+              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 text-xs shadow-2xs">
+                <span className="text-slate-500 mr-1.5 hidden md:inline font-medium">User:</span>
                 <select
-                  className="bg-white text-navy-900 font-semibold rounded px-2 py-1 outline-none border border-slate-200 shadow-2xs text-xs"
+                  className="bg-transparent text-slate-900 font-bold outline-none border-none cursor-pointer text-xs"
                   value={currentUser.username}
                   onChange={(e) => {
                     const u = demoUsers.find(x => x.username === e.target.value);
