@@ -13,7 +13,9 @@ import {
   Award,
   ChevronRight,
   Package,
-  X
+  X,
+  BookOpen,
+  Briefcase
 } from 'lucide-react';
 
 interface UserContext {
@@ -22,6 +24,67 @@ interface UserContext {
   state_id: string | null;
   district_id: string | null;
   full_name: string;
+}
+
+interface SchemeRuleItem {
+  id: string;
+  scheme_id: string;
+  version: string;
+  rule_json: string;
+  effective_from: string;
+  effective_to?: string;
+  source_document: string;
+  source_page: string;
+  source_clause: string;
+  status: string;
+  author_id: string;
+  approver_id?: string;
+  approved_at?: string;
+}
+
+interface SchemeItem {
+  id: string;
+  code: string;
+  name: string;
+  level: string;
+  owner_body: string;
+  is_placeholder: boolean;
+  verify_with_ministry: boolean;
+  rules: SchemeRuleItem[];
+}
+
+interface OpportunityItem {
+  id: string;
+  title: string;
+  type: string;
+  employer: string;
+  slots: number;
+  state_scope?: string;
+  district_scope?: string;
+  deadline: string;
+  status: string;
+}
+
+interface EligibilityEvaluation {
+  scheme_id: string;
+  scheme_name: string;
+  rule_version: string;
+  eligible: boolean | null;
+  missing_fields: string[];
+  reasons: { field: string; passed: boolean; reason: string }[];
+  source_refs: { source_document: string; source_page: string; source_clause: string }[];
+  evaluated_at: string;
+}
+
+interface TrainerCertItem {
+  id: string;
+  trainer_id: string;
+  course: string;
+  provider: string;
+  issued_on: string;
+  expires_on: string;
+  status: string;
+  days_to_expiry: number;
 }
 
 interface Achievement {
@@ -122,7 +185,7 @@ interface Facility {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities'>('diagnosis');
+  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes'>('diagnosis');
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
     role: 'DISTRICT_OFFICER',
@@ -138,6 +201,13 @@ export default function App() {
   const [overdueLoans, setOverdueLoans] = useState<EquipmentLoan[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
+
+  // Phase 3 States
+  const [schemes, setSchemes] = useState<SchemeItem[]>([]);
+  const [opportunities, setOpportunities] = useState<OpportunityItem[]>([]);
+  const [trainerCerts, setTrainerCerts] = useState<TrainerCertItem[]>([]);
+  const [eligibilityResults, setEligibilityResults] = useState<EligibilityEvaluation[]>([]);
+  const [evaluatingAthleteId, setEvaluatingAthleteId] = useState<string | null>(null);
 
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -164,13 +234,15 @@ export default function App() {
 
   const fetchData = async (user: UserContext) => {
     try {
-      const [resAth, resHeat, resFun, resEq, resOver, resFac] = await Promise.all([
+      const [resAth, resHeat, resFun, resEq, resOver, resFac, resSch, resOpp] = await Promise.all([
         fetch('/api/v1/registry/athletes', { headers: { 'x-user-id': user.username } }),
         fetch('/api/v1/pipeline/diagnosis/heatmap', { headers: { 'x-user-id': user.username } }),
         fetch('/api/v1/pipeline/funnel', { headers: { 'x-user-id': user.username } }),
         fetch('/api/v1/equipment/items', { headers: { 'x-user-id': user.username } }),
         fetch('/api/v1/equipment/overdue', { headers: { 'x-user-id': user.username } }),
-        fetch('/api/v1/facilities', { headers: { 'x-user-id': user.username } })
+        fetch('/api/v1/facilities', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/schemes', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/opportunities', { headers: { 'x-user-id': user.username } })
       ]);
 
       if (resAth.ok) setAthletes(await resAth.json());
@@ -179,8 +251,71 @@ export default function App() {
       if (resEq.ok) setEquipmentItems(await resEq.json());
       if (resOver.ok) setOverdueLoans(await resOver.json());
       if (resFac.ok) setFacilities(await resFac.json());
+      if (resSch.ok) setSchemes(await resSch.json());
+      if (resOpp.ok) setOpportunities(await resOpp.json());
+
+      // Fetch trainer certs for sample trainer
+      const resCert = await fetch('/api/v1/certifications/trainer/4d1272e9-35ab-4455-9254-29ce2d5ee70e', {
+        headers: { 'x-user-id': user.username }
+      });
+      if (resCert.ok) setTrainerCerts(await resCert.json());
     } catch {
       // Local fallback
+    }
+  };
+
+  const evaluateAthleteEligibility = async (athId: string) => {
+    setEvaluatingAthleteId(athId);
+    try {
+      const res = await fetch(`/api/v1/eligibility/athlete/${athId}`, {
+        headers: { 'x-user-id': currentUser.username }
+      });
+      if (res.ok) {
+        setEligibilityResults(await res.json());
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleApproveRule = async (ruleId: string) => {
+    try {
+      const res = await fetch(`/api/v1/schemes/rules/${ruleId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({ rule_id: ruleId, approval_reason: 'Sanctioned under State Policy Guidelines' })
+      });
+      if (res.ok) {
+        alert("Rule approved successfully!");
+        fetchData(currentUser);
+      } else {
+        const err = await res.json();
+        alert(`Approval rejected: ${err.detail}`);
+      }
+    } catch {
+      alert("Error approving rule");
+    }
+  };
+
+  const handleApplyOpportunity = async (oppId: string, athId: string) => {
+    try {
+      const res = await fetch('/api/v1/opportunities/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          opportunity_id: oppId,
+          athlete_id: athId,
+          status_reason: 'Applied via District Sports Officer recommendation'
+        })
+      });
+      if (res.ok) {
+        alert("Application submitted! Transactional outbox notification queued.");
+      } else {
+        const err = await res.json();
+        alert(`Application error: ${err.detail}`);
+      }
+    } catch {
+      alert("Application failed");
     }
   };
 
@@ -271,7 +406,7 @@ export default function App() {
             <ShieldCheck className="w-8 h-8 text-amber-400" />
             <div>
               <h1 className="text-xl font-bold tracking-tight">TrackNet / NSIS</h1>
-              <p className="text-xs text-slate-300">Phase 2: Pipeline Diagnosis, Funnels & Gap Heatmaps</p>
+              <p className="text-xs text-slate-300">Phase 3: Schemes, Eligibility & Opportunity Linkages</p>
             </div>
           </div>
 
@@ -318,6 +453,14 @@ export default function App() {
             }`}
           >
             <Users className="w-4 h-4" /> Unified Registry
+          </button>
+          <button
+            onClick={() => setActiveTab('schemes')}
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+              activeTab === 'schemes' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" /> Schemes & Opportunities
           </button>
           <button
             onClick={() => setActiveTab('verification')}
@@ -635,6 +778,231 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 3: Schemes & Opportunities Tab */}
+        {activeTab === 'schemes' && (
+          <div className="space-y-6">
+            {/* Header & Disclaimers */}
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Schemes, Rules & Opportunities Board</h2>
+                <p className="text-xs text-slate-500">
+                  Dual-governance rules engine with Maker-Checker sanctioning. All central/state schemes explicitly marked with advisory verification warnings.
+                </p>
+              </div>
+              <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Placeholder — verify with ministry
+              </span>
+            </div>
+
+            {/* Scheme Catalog */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {schemes.map((s) => (
+                <div key={s.id} className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[11px] uppercase tracking-wider font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                        {s.level} · {s.owner_body}
+                      </span>
+                      <h3 className="font-bold text-slate-900 text-base mt-1">{s.name}</h3>
+                      <p className="text-xs font-mono text-slate-400">Code: {s.code}</p>
+                    </div>
+                    {s.verify_with_ministry && (
+                      <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 font-semibold px-2 py-0.5 rounded">
+                        Advisory Only
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Rules list */}
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                      <span>Eligibility Criteria Versions</span>
+                      <span className="text-slate-400 font-normal">{s.rules.length} rule(s)</span>
+                    </div>
+
+                    {s.rules.map((r) => (
+                      <div key={r.id} className="p-3 bg-slate-50 rounded-lg text-xs space-y-1.5 border border-slate-200/60">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-slate-800">Version {r.version}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            r.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {r.status}
+                          </span>
+                        </div>
+                        <p className="text-slate-500 text-[11px]">
+                          <b>Source:</b> {r.source_document} ({r.source_clause}, {r.source_page})
+                        </p>
+                        <p className="text-slate-500 text-[11px]">
+                          <b>Effective:</b> {r.effective_from} {r.effective_to ? `to ${r.effective_to}` : '(Ongoing)'}
+                        </p>
+
+                        {/* Maker-Checker Approval Button for Admins */}
+                        {r.status === 'DRAFT' && ['NATIONAL_ADMIN', 'STATE_OFFICER'].includes(currentUser.role) && (
+                          <div className="pt-2 flex justify-end">
+                            <button
+                              onClick={() => handleApproveRule(r.id)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 shadow-sm"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" /> Approve Rule (Maker-Checker)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Athlete Eligibility Evaluator Panel */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Deterministic Athlete Eligibility Simulator</h3>
+                <p className="text-xs text-slate-500">
+                  Select an athlete from the registry to evaluate against active APPROVED rules. Explains criteria checks and flags missing fields.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <select
+                  className="bg-white border border-slate-300 text-slate-800 text-xs rounded-lg p-2 max-w-sm"
+                  value={evaluatingAthleteId || ''}
+                  onChange={(e) => evaluateAthleteEligibility(e.target.value)}
+                >
+                  <option value="">-- Choose Athlete to Test Eligibility --</option>
+                  {athletes.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.kid} · {a.sport_name} · {a.age_band})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {eligibilityResults.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Evaluation Audit Results</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {eligibilityResults.map((ev, idx) => (
+                      <div key={idx} className="p-4 rounded-xl border bg-slate-50/50 space-y-2 text-xs">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="font-bold text-slate-900">{ev.scheme_name}</span>
+                            <p className="text-[11px] text-slate-500">Rule Version {ev.rule_version}</p>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full font-bold text-[11px] ${
+                            ev.eligible === true ? 'bg-emerald-100 text-emerald-800' :
+                            ev.eligible === false ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {ev.eligible === true ? 'ELIGIBLE' : ev.eligible === false ? 'NOT ELIGIBLE' : 'MISSING DATA (NULL)'}
+                          </span>
+                        </div>
+
+                        {ev.missing_fields && ev.missing_fields.length > 0 && (
+                          <div className="p-2 bg-amber-50 rounded border border-amber-200 text-amber-800 text-[11px]">
+                            <b>Missing Dossier Fields:</b> {ev.missing_fields.join(', ')}
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-semibold text-slate-700">Criteria Check Explanations:</span>
+                          {ev.reasons.map((r, rIdx) => (
+                            <div key={rIdx} className="flex items-center gap-1.5 text-[11px]">
+                              {r.passed ? (
+                                <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              ) : (
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                              )}
+                              <span className={r.passed ? 'text-slate-700' : 'text-red-700'}>{r.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {ev.source_refs && ev.source_refs.length > 0 && (
+                          <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-200/60">
+                            Source: {ev.source_refs[0].source_document} ({ev.source_refs[0].source_clause})
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Opportunities & Quota Board */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Opportunities & Sports Quotas Board</h3>
+                  <p className="text-xs text-slate-500">
+                    Direct linkages to Armed Forces, Indian Railways, and PSU sports employment openings.
+                  </p>
+                </div>
+                <span className="text-xs text-slate-500">{opportunities.length} active position(s)</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {opportunities.map((opp) => (
+                  <div key={opp.id} className="p-4 border rounded-xl bg-slate-50/50 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[11px] uppercase tracking-wider font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded">
+                          {opp.type} · {opp.employer}
+                        </span>
+                        <h4 className="font-bold text-slate-900 text-sm mt-1">{opp.title}</h4>
+                        <p className="text-xs text-slate-500">
+                          Slots: <b>{opp.slots}</b> · Scope: {opp.state_scope || 'National'} · Deadline: {opp.deadline}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                      {athletes.length > 0 && (
+                        <button
+                          onClick={() => handleApplyOpportunity(opp.id, athletes[0].id)}
+                          className="bg-navy-900 hover:bg-navy-800 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Briefcase className="w-3.5 h-3.5" /> Submit Dossier for {athletes[0].name}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Trainer Certifications & Expiry Tracking */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Coach & Trainer Certifications</h3>
+                <p className="text-xs text-slate-500">
+                  Accreditation validity registry. Revoked credentials automatically block academy placement.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {trainerCerts.map((cert) => (
+                  <div key={cert.id} className="p-3 border rounded-xl bg-slate-50 text-xs space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800">{cert.course}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        cert.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {cert.status}
+                      </span>
+                    </div>
+                    <p className="text-slate-500">Provider: {cert.provider} · Issued: {cert.issued_on}</p>
+                    <p className="text-slate-700 font-medium">
+                      Expires: {cert.expires_on} ({cert.days_to_expiry > 0 ? `${cert.days_to_expiry} days remaining` : 'Expired'})
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

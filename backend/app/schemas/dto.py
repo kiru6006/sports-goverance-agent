@@ -93,7 +93,6 @@ class FacilityResponse(BaseModel):
     sports: List[str]
     open_hours_monthly: float = 300.0
 
-# Phase 2 DTOs
 class HeatmapCell(BaseModel):
     sport_code: str
     sport_name: str
@@ -147,14 +146,14 @@ class IssueEquipmentRequest(BaseModel):
     item_id: str
     borrower_type: str
     borrower_id: str
-    due_at: str  # YYYY-MM-DD
+    due_at: str
     condition_out: str = "GOOD"
 
 class ReturnEquipmentRequest(BaseModel):
     condition_in: str
 
 class UtilisationLogRequest(BaseModel):
-    period: str  # YYYY-MM-01
+    period: str
     sessions: int
     athlete_count: int
     hours_used: float
@@ -170,6 +169,107 @@ class UtilisationResponse(BaseModel):
     utilisation_rate_pct: float
     is_underutilised: bool
     advisory_reason: Optional[str]
+
+# --- PHASE 3 DTOs ---
+
+class SchemeRuleResponse(BaseModel):
+    id: str
+    scheme_id: str
+    version: str
+    rule_json: str
+    effective_from: str
+    effective_to: Optional[str]
+    source_document: str
+    source_page: str
+    source_clause: str
+    status: str
+    author_id: str
+    approver_id: Optional[str]
+    approved_at: Optional[str]
+
+class SchemeResponse(BaseModel):
+    id: str
+    code: str
+    name: str
+    level: str
+    owner_body: str
+    is_placeholder: bool
+    verify_with_ministry: bool
+    rules: List[SchemeRuleResponse] = []
+
+class CreateSchemeRuleRequest(BaseModel):
+    scheme_id: str
+    version: str
+    rule_dict: Dict[str, Any]
+    effective_from: str  # YYYY-MM-DD
+    effective_to: Optional[str] = None
+    source_document: str
+    source_page: str
+    source_clause: str
+
+class ApproveSchemeRuleRequest(BaseModel):
+    rule_id: str
+    approval_reason: str
+
+class EvaluateEligibilityResponse(BaseModel):
+    scheme_id: str
+    scheme_name: str
+    rule_version: str
+    eligible: Optional[bool]
+    missing_fields: List[str]
+    reasons: List[Dict[str, Any]]
+    source_refs: List[Dict[str, str]]
+    evaluated_at: str
+
+class OpportunityResponse(BaseModel):
+    id: str
+    title: str
+    type: str
+    employer: str
+    slots: int
+    state_scope: Optional[str]
+    district_scope: Optional[str]
+    deadline: str
+    status: str
+    is_eligible: Optional[bool] = None
+
+class ApplyOpportunityRequest(BaseModel):
+    opportunity_id: str
+    athlete_id: str
+    status_reason: str
+
+class OpportunityApplicationResponse(BaseModel):
+    id: str
+    opportunity_id: str
+    athlete_id: str
+    status: str
+    status_reason: str
+    created_at: str
+
+class TrainerCertificationResponse(BaseModel):
+    id: str
+    trainer_id: str
+    course: str
+    provider: str
+    issued_on: str
+    expires_on: str
+    status: str
+    days_to_expiry: int
+
+class CreatePlacementRequest(BaseModel):
+    trainer_id: str
+    institution_id: str
+    role: str
+    start_date: str
+    end_date: Optional[str] = None
+
+class PlacementResponse(BaseModel):
+    id: str
+    trainer_id: str
+    institution_id: str
+    role: str
+    start_date: str
+    end_date: Optional[str]
 
 class PipelineMetric(BaseModel):
     district_id: str

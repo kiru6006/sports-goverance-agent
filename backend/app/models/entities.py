@@ -11,7 +11,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String, unique=True, index=True, nullable=False)
-    role = Column(String, nullable=False)  # NATIONAL_ADMIN, STATE_OFFICER, DISTRICT_OFFICER, COACH
+    role = Column(String, nullable=False)
     state_id = Column(String, nullable=True)
     district_id = Column(String, nullable=True)
     full_name = Column(String, nullable=False)
@@ -22,7 +22,7 @@ class Sport(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     code = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
-    category = Column(String, nullable=False)  # INDIVIDUAL, TEAM
+    category = Column(String, nullable=False)
     is_olympic = Column(Boolean, default=True)
     is_national = Column(Boolean, default=True)
     federation = Column(String, nullable=True)
@@ -32,14 +32,14 @@ class Athlete(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     kid = Column(String, index=True, nullable=True)
     encrypted_name = Column(String, nullable=False)
-    encrypted_dob = Column(String, nullable=False)  # Stored encrypted, age band derived
+    encrypted_dob = Column(String, nullable=False)
     gender = Column(String, nullable=False)
     state_id = Column(String, index=True, nullable=False)
     district_id = Column(String, index=True, nullable=False)
     primary_sport_id = Column(String, ForeignKey("sports.id"), nullable=False)
     encrypted_guardian = Column(String, nullable=True)
-    consent_status = Column(String, nullable=False, default="PENDING")  # PENDING, GRANTED, REVOKED
-    verification_status = Column(String, nullable=False, default="SUBMITTED")  # SUBMITTED, UNDER_REVIEW, VERIFIED, REJECTED, NEEDS_INFO
+    consent_status = Column(String, nullable=False, default="PENDING")
+    verification_status = Column(String, nullable=False, default="SUBMITTED")
     verifier_id = Column(String, ForeignKey("users.id"), nullable=True)
     coach_id = Column(String, ForeignKey("users.id"), nullable=True)
     verification_notes = Column(Text, nullable=True)
@@ -48,12 +48,112 @@ class Athlete(Base):
     is_synthetic = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    # Relationships
     achievements = relationship("Achievement", back_populates="athlete", cascade="all, delete-orphan")
     journey_events = relationship("JourneyEvent", back_populates="athlete", cascade="all, delete-orphan")
     affiliations = relationship("Affiliation", back_populates="athlete", cascade="all, delete-orphan")
     support_records = relationship("SupportRecord", back_populates="athlete", cascade="all, delete-orphan")
 
+# --- PHASE 3 ENTITIES ---
+
+class Scheme(Base):
+    __tablename__ = "schemes"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    code = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    level = Column(String, nullable=False)  # central, state
+    owner_body = Column(String, nullable=False)  # SAI, State Sports Directorate
+    is_placeholder = Column(Boolean, default=True)
+    verify_with_ministry = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    rules = relationship("SchemeRule", back_populates="scheme")
+
+class SchemeRule(Base):
+    __tablename__ = "scheme_rules"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    scheme_id = Column(String, ForeignKey("schemes.id"), nullable=False)
+    version = Column(String, nullable=False)
+    rule_json = Column(Text, nullable=False)  # JSON Schema validated
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    source_document = Column(String, nullable=False)
+    source_page = Column(String, nullable=False)
+    source_clause = Column(String, nullable=False)
+    status = Column(String, default="DRAFT")  # DRAFT, SUBMITTED_FOR_APPROVAL, APPROVED, RETIRED
+    author_id = Column(String, ForeignKey("users.id"), nullable=False)
+    approver_id = Column(String, ForeignKey("users.id"), nullable=True)  # Must != author_id
+    approved_at = Column(DateTime, nullable=True)
+
+    scheme = relationship("Scheme", back_populates="rules")
+
+class EligibilityResult(Base):
+    __tablename__ = "eligibility_results"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    athlete_id = Column(String, ForeignKey("athletes.id"), nullable=False)
+    scheme_id = Column(String, ForeignKey("schemes.id"), nullable=False)
+    rule_version = Column(String, nullable=False)
+    eligible = Column(Boolean, nullable=True)  # True, False, or None (if missing fields)
+    reasons_json = Column(Text, nullable=False)
+    missing_fields_json = Column(Text, nullable=False)
+    source_refs_json = Column(Text, nullable=False)
+    evaluated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    evaluated_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # job, sponsorship, quota
+    employer = Column(String, nullable=False)  # Indian Railways, Armed Forces, PSU
+    eligibility_rule_id = Column(String, ForeignKey("scheme_rules.id"), nullable=True)
+    slots = Column(Integer, nullable=False)
+    district_scope = Column(String, nullable=True)
+    state_scope = Column(String, nullable=True)
+    deadline = Column(Date, nullable=False)
+    status = Column(String, default="OPEN")  # OPEN, CLOSED
+
+class OpportunityApplication(Base):
+    __tablename__ = "opportunity_applications"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    opportunity_id = Column(String, ForeignKey("opportunities.id"), nullable=False)
+    athlete_id = Column(String, ForeignKey("athletes.id"), nullable=False)
+    status = Column(String, default="SUBMITTED")  # SUBMITTED, SHORTLISTED, REJECTED, WITHDRAWN, OFFERED, ACCEPTED
+    status_reason = Column(Text, nullable=False)
+    updated_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class TrainerCertification(Base):
+    __tablename__ = "trainer_certifications"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    trainer_id = Column(String, ForeignKey("trainers.id"), nullable=False)
+    course = Column(String, nullable=False)
+    provider = Column(String, nullable=False)  # SAI, National Federation
+    issued_on = Column(Date, nullable=False)
+    expires_on = Column(Date, nullable=False)
+    status = Column(String, default="ACTIVE")  # ACTIVE, EXPIRED, REVOKED
+
+class Placement(Base):
+    __tablename__ = "placements"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    trainer_id = Column(String, ForeignKey("trainers.id"), nullable=False)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    role = Column(String, default="HEAD_COACH")
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+
+class OutboxMessage(Base):
+    __tablename__ = "outbox_messages"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    channel = Column(String, nullable=False)  # email, sms
+    recipient_ref = Column(String, nullable=False)
+    template_id = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)  # No minor identifiers! Token only
+    status = Column(String, default="PENDING")  # PENDING, DELIVERED, DEAD_LETTER
+    idempotency_key = Column(String, unique=True, index=True, nullable=False)
+    attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+# Existing Phase 1 & 2 Entities
 class Population(Base):
     __tablename__ = "population"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -69,12 +169,11 @@ class SupportRecord(Base):
     __tablename__ = "support_records"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     athlete_id = Column(String, ForeignKey("athletes.id"), nullable=False)
-    support_type = Column(String, nullable=False)  # equipment, nutrition, training_grant, coaching, facility_access
-    status = Column(String, nullable=False, default="ACTIVE")  # ACTIVE, COMPLETED, TERMINATED
+    support_type = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="ACTIVE")
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
-
     athlete = relationship("Athlete", back_populates="support_records")
 
 class EquipmentItem(Base):
@@ -82,18 +181,17 @@ class EquipmentItem(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     facility_id = Column(String, ForeignKey("facilities.id"), nullable=False)
     item_name = Column(String, nullable=False)
-    item_type = Column(String, nullable=False)  # GLOVES, MAT, RING, SHOES, WEIGHTS
-    condition = Column(String, nullable=False, default="GOOD")  # EXCELLENT, GOOD, WORN, DAMAGED
+    item_type = Column(String, nullable=False)
+    condition = Column(String, nullable=False, default="GOOD")
     qr_code = Column(String, unique=True, index=True, nullable=False)
-    status = Column(String, default="AVAILABLE")  # AVAILABLE, ISSUED, UNDER_MAINTENANCE
-
+    status = Column(String, default="AVAILABLE")
     loans = relationship("EquipmentLoan", back_populates="item")
 
 class EquipmentLoan(Base):
     __tablename__ = "equipment_loans"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     item_id = Column(String, ForeignKey("equipment_items.id"), nullable=False)
-    borrower_type = Column(String, nullable=False)  # ATHLETE, TRAINER, INSTITUTION
+    borrower_type = Column(String, nullable=False)
     borrower_id = Column(String, nullable=False)
     issued_at = Column(DateTime, default=datetime.datetime.utcnow)
     due_at = Column(DateTime, nullable=False)
@@ -101,14 +199,13 @@ class EquipmentLoan(Base):
     condition_out = Column(String, nullable=False)
     condition_in = Column(String, nullable=True)
     issued_by = Column(String, ForeignKey("users.id"), nullable=False)
-
     item = relationship("EquipmentItem", back_populates="loans")
 
 class Facility(Base):
     __tablename__ = "facilities"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
-    type = Column(String, nullable=False)  # STADIUM, COMPLEX, GROUND, GYM
+    type = Column(String, nullable=False)
     state_id = Column(String, nullable=False)
     district_id = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
@@ -116,18 +213,16 @@ class Facility(Base):
     sports_json = Column(Text, nullable=False)
     open_hours_monthly = Column(Float, default=300.0)
     is_synthetic = Column(Boolean, default=True)
-
     utilisations = relationship("FacilityUtilisation", back_populates="facility")
 
 class FacilityUtilisation(Base):
     __tablename__ = "facility_utilisation"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     facility_id = Column(String, ForeignKey("facilities.id"), nullable=False)
-    period = Column(Date, nullable=False)  # First of month (YYYY-MM-01)
+    period = Column(Date, nullable=False)
     sessions = Column(Integer, default=0)
     athlete_count = Column(Integer, default=0)
     hours_used = Column(Float, default=0.0)
-
     facility = relationship("Facility", back_populates="utilisations")
 
 class Trainer(Base):
@@ -160,7 +255,6 @@ class Affiliation(Base):
     role = Column(String, default="STUDENT_ATHLETE")
     valid_from = Column(Date, nullable=False)
     valid_to = Column(Date, nullable=True)
-
     athlete = relationship("Athlete", back_populates="affiliations")
 
 class Achievement(Base):
@@ -169,10 +263,9 @@ class Achievement(Base):
     athlete_id = Column(String, ForeignKey("athletes.id"), nullable=False)
     sport_id = Column(String, ForeignKey("sports.id"), nullable=False)
     event = Column(String, nullable=False)
-    level = Column(String, nullable=False)  # local, district, state, national, intl
+    level = Column(String, nullable=False)
     result = Column(String, nullable=False)
     event_date = Column(Date, nullable=False)
-
     athlete = relationship("Athlete", back_populates="achievements")
 
 class JourneyEvent(Base):
@@ -183,7 +276,6 @@ class JourneyEvent(Base):
     event_date = Column(Date, nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
     athlete = relationship("Athlete", back_populates="journey_events")
 
 class PipelineSnapshot(Base):

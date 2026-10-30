@@ -45,10 +45,10 @@ def test_duplicate_detection_returns_candidates_never_auto_merges():
 
 def test_verification_state_machine_transitions():
     """Invalid transitions return 409; valid transitions transition state."""
-    # Find athlete in SUBMITTED or VERIFIED
+    # Find athlete in VERIFIED
     res = client.get("/api/v1/registry/athletes", headers={"x-user-id": "pune_dso"})
     athletes = res.json()
-    ath = athletes[0]
+    ath = next((a for a in athletes if a["verification_status"] == "VERIFIED"), athletes[0])
     
     # Try invalid direct jump: VERIFIED -> REJECTED (must go through UNDER_REVIEW)
     inv_res = client.post(

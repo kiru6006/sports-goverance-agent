@@ -10,9 +10,12 @@ from app.core.crypto import encrypt_pii, decrypt_pii
 from app.core.age_bands import get_age_band, calculate_age
 from app.core.dedup import find_duplicate_candidates
 from app.core.pipeline_engine import evaluate_district_gap, calculate_funnel_stages, compute_peer_median
+from app.core.eligibility_engine import validate_rule_json, evaluate_scheme_eligibility
 from app.models.entities import (
     User, Athlete, Sport, Facility, Achievement, JourneyEvent, PipelineSnapshot, AuditLog,
-    Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation
+    Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation,
+    Scheme, SchemeRule, EligibilityResult, Opportunity, OpportunityApplication,
+    TrainerCertification, Placement, OutboxMessage, Trainer, Institution
 )
 from app.schemas.dto import (
     AthleteSummary, AthleteDetail, AchievementResponse, JourneyEventResponse,
@@ -20,6 +23,9 @@ from app.schemas.dto import (
     VerificationTransitionRequest, JourneyEventCreateRequest, FacilityResponse,
     HeatmapCell, FunnelResponse, EquipmentItemResponse, EquipmentLoanResponse,
     IssueEquipmentRequest, ReturnEquipmentRequest, UtilisationLogRequest, UtilisationResponse,
+    SchemeResponse, SchemeRuleResponse, CreateSchemeRuleRequest, ApproveSchemeRuleRequest,
+    EvaluateEligibilityResponse, OpportunityResponse, ApplyOpportunityRequest, OpportunityApplicationResponse,
+    TrainerCertificationResponse, CreatePlacementRequest, PlacementResponse,
     PipelineMetric, AuditLogEntry, UserResponse
 )
 
@@ -814,3 +820,379 @@ def list_audit_trail(
             prev_hash=l.prev_hash
         ) for l in logs
     ]
+
+# --- PHASE 3: SCHEME CATALOG & MAKER-CHECKER ---
+
+@api_router.get("/schemes", response_model=List[SchemeResponse])
+def list_schemes(db: Session = Depends(get_db)):
+    schemes = db.query(Scheme).all()
+    out = []
+    for s in schemes:
+        rules = db.query(SchemeRule).filter(SchemeRule.scheme_id == s.id).all()
+        out.append(SchemeResponse(
+            id=s.id,
+            code=s.code,
+            name=s.name,
+            level=s.level,
+            owner_body=s.owner_body,
+            is_placeholder=s.is_placeholder,
+            verify_with_ministry=s.verify_with_ministry,
+            rules=[
+                SchemeRuleResponse(
+                    id=r.id,
+                    scheme_id=r.scheme_id,
+                    version=r.version,
+                    rule_json=r.rule_json,
+                    effective_from=r.effective_from.isoformat(),
+                    effective_to=r.effective_to.isoformat() if r.effective_to else None,
+                    source_document=r.source_document,
+                    source_page=r.source_page,
+                    source_clause=r.source_clause,
+                    status=r.status,
+                    author_id=r.author_id,
+                    approver_id=r.approver_id,
+                    approved_at=r.approved_at.isoformat() if r.approved_at else None
+                ) for r in rules
+            ]
+        ))
+    return out
+
+@api_router.post("/schemes/rules", response_model=SchemeRuleResponse, status_code=status.HTTP_201_CREATED)
+def create_draft_scheme_rule(
+    req: CreateSchemeRuleRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER"):
+        raise HTTPException(status_code=403, detail="Only State or National officers can author scheme rules")
+
+    scheme = db.query(Scheme).filter(Scheme.id == req.scheme_id).first()
+    if not scheme:
+        raise HTTPException(status_code=404, detail="Scheme not found")
+
+    errors = validate_rule_json(req.rule_dict)
+    if errors:
+        raise HTTPException(status_code=422, detail=f"Scheme rule validation error: {errors}")
+
+    try:
+        eff_from = datetime.date.fromisoformat(req.effective_from)
+        eff_to = datetime.date.fromisoformat(req.effective_to) if req.effective_to else None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, expected YYYY-MM-DD")
+
+    rule = SchemeRule(
+        scheme_id=scheme.id,
+        version=req.version,
+        rule_json=json.dumps(req.rule_dict),
+        effective_from=eff_from,
+        effective_to=eff_to,
+        source_document=req.source_document,
+        source_page=req.source_page,
+        source_clause=req.source_clause,
+        status="DRAFT",
+        author_id=current_user.id
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+
+    record_audit_event(
+        db, current_user, "CREATE_SCHEME_RULE_DRAFT", "SchemeRule", rule.id,
+        {"version": req.version, "scheme": scheme.code}
+    )
+
+    return SchemeRuleResponse(
+        id=rule.id,
+        scheme_id=rule.scheme_id,
+        version=rule.version,
+        rule_json=rule.rule_json,
+        effective_from=rule.effective_from.isoformat(),
+        effective_to=rule.effective_to.isoformat() if rule.effective_to else None,
+        source_document=rule.source_document,
+        source_page=rule.source_page,
+        source_clause=rule.source_clause,
+        status=rule.status,
+        author_id=rule.author_id,
+        approver_id=None,
+        approved_at=None
+    )
+
+@api_router.post("/schemes/rules/{rule_id}/approve", response_model=SchemeRuleResponse)
+def approve_scheme_rule(
+    rule_id: str,
+    req: ApproveSchemeRuleRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(SchemeRule).filter(SchemeRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Scheme rule not found")
+
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER"):
+        raise HTTPException(status_code=403, detail="Unauthorized to approve scheme rules")
+
+    # Invariant: Maker-Checker enforcement (Approver cannot be the Author)
+    if rule.author_id == current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Maker-Checker Violation: Author cannot approve their own scheme rule. Distinct approver required."
+        )
+
+    if rule.status == "APPROVED":
+        raise HTTPException(status_code=409, detail="Rule is already approved and immutable")
+
+    rule.status = "APPROVED"
+    rule.approver_id = current_user.id
+    rule.approved_at = datetime.datetime.utcnow()
+    db.commit()
+
+    record_audit_event(
+        db, current_user, "APPROVE_SCHEME_RULE", "SchemeRule", rule.id,
+        {"reason": req.approval_reason, "version": rule.version}
+    )
+
+    return SchemeRuleResponse(
+        id=rule.id,
+        scheme_id=rule.scheme_id,
+        version=rule.version,
+        rule_json=rule.rule_json,
+        effective_from=rule.effective_from.isoformat(),
+        effective_to=rule.effective_to.isoformat() if rule.effective_to else None,
+        source_document=rule.source_document,
+        source_page=rule.source_page,
+        source_clause=rule.source_clause,
+        status=rule.status,
+        author_id=rule.author_id,
+        approver_id=rule.approver_id,
+        approved_at=rule.approved_at.isoformat() if rule.approved_at else None
+    )
+
+# Approved rules are immutable (Update rejected)
+@api_router.put("/schemes/rules/{rule_id}")
+def update_scheme_rule_rejected(rule_id: str, db: Session = Depends(get_db)):
+    rule = db.query(SchemeRule).filter(SchemeRule.id == rule_id).first()
+    if rule and rule.status == "APPROVED":
+        raise HTTPException(status_code=409, detail="Approved scheme rules are strictly immutable. Create a new version.")
+    raise HTTPException(status_code=400, detail="Draft rules must be updated through migration or new version")
+
+# --- PHASE 3: DETERMINISTIC ELIGIBILITY EVALUATOR ---
+
+@api_router.get("/eligibility/athlete/{athlete_id}", response_model=List[EvaluateEligibilityResponse])
+def evaluate_athlete_eligibility(
+    athlete_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    ath = db.query(Athlete).filter(Athlete.id == athlete_id).first()
+    if not ath:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    # Invariant: minor records invisible to unauthorized roles (return 404, not 403)
+    if ath.is_minor and current_user.role in ("DISTRICT_OFFICER", "COACH") and current_user.district_id != ath.district_id:
+        raise HTTPException(status_code=404, detail="Athlete record not found")
+
+    # Build evaluation profile
+    dob_str = decrypt_pii(ath.encrypted_dob)
+    try:
+        dob_date = datetime.date.fromisoformat(dob_str)
+        age = calculate_age(dob_date)
+    except Exception:
+        age = 15
+
+    achievements = db.query(Achievement).filter(Achievement.athlete_id == ath.id).all()
+    ach_levels = [a.level for a in achievements]
+    highest_level = "intl" if "intl" in ach_levels else ("national" if "national" in ach_levels else ("state" if "state" in ach_levels else ("district" if "district" in ach_levels else "local")))
+
+    profile = {
+        "age": age,
+        "verification_status": ath.verification_status,
+        "state_id": ath.state_id,
+        "district_id": ath.district_id,
+        "highest_achievement_level": highest_level if achievements else None
+    }
+
+    # Invariant: Evaluate ONLY status = APPROVED rules
+    approved_rules = db.query(SchemeRule, Scheme).\
+        join(Scheme, SchemeRule.scheme_id == Scheme.id).\
+        filter(SchemeRule.status == "APPROVED").all()
+
+    eval_results = []
+    for rule, scheme in approved_rules:
+        rule_dict = json.loads(rule.rule_json)
+        source_ref = {
+            "source_document": rule.source_document,
+            "source_page": rule.source_page,
+            "source_clause": rule.source_clause
+        }
+        res = evaluate_scheme_eligibility(profile, rule_dict, source_ref, rule.version)
+
+        # Record append-only eligibility result
+        el_record = EligibilityResult(
+            athlete_id=ath.id,
+            scheme_id=scheme.id,
+            rule_version=rule.version,
+            eligible=res["eligible"],
+            reasons_json=json.dumps(res["reasons"]),
+            missing_fields_json=json.dumps(res["missing_fields"]),
+            source_refs_json=json.dumps(res["source_refs"]),
+            evaluated_by=current_user.id
+        )
+        db.add(el_record)
+
+        eval_results.append(EvaluateEligibilityResponse(
+            scheme_id=scheme.id,
+            scheme_name=scheme.name,
+            rule_version=rule.version,
+            eligible=res["eligible"],
+            missing_fields=res["missing_fields"],
+            reasons=res["reasons"],
+            source_refs=res["source_refs"],
+            evaluated_at=res["evaluated_at"]
+        ))
+
+    db.commit()
+    return eval_results
+
+# --- PHASE 3: OPPORTUNITY BOARD ---
+
+@api_router.get("/opportunities", response_model=List[OpportunityResponse])
+def list_opportunities(
+    state_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Opportunity).filter(Opportunity.status == "OPEN")
+    if current_user.role == "STATE_OFFICER":
+        query = query.filter(Opportunity.state_scope.in_([current_user.state_id, None]))
+
+    opportunities = query.all()
+    return [
+        OpportunityResponse(
+            id=o.id,
+            title=o.title,
+            type=o.type,
+            employer=o.employer,
+            slots=o.slots,
+            state_scope=o.state_scope,
+            district_scope=o.district_scope,
+            deadline=o.deadline.isoformat(),
+            status=o.status
+        ) for o in opportunities
+    ]
+
+@api_router.post("/opportunities/apply", response_model=OpportunityApplicationResponse, status_code=status.HTTP_201_CREATED)
+def apply_opportunity(
+    req: ApplyOpportunityRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    opp = db.query(Opportunity).filter(Opportunity.id == req.opportunity_id).first()
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    ath = db.query(Athlete).filter(Athlete.id == req.athlete_id).first()
+    if not ath:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    verify_district_scope(ath.district_id, current_user)
+
+    if not req.status_reason:
+        raise HTTPException(status_code=422, detail="Opportunity application requires explicit status_reason")
+
+    app_entry = OpportunityApplication(
+        opportunity_id=opp.id,
+        athlete_id=ath.id,
+        status="SUBMITTED",
+        status_reason=req.status_reason,
+        updated_by=current_user.id
+    )
+
+    # Invariant: Transactional Outbox write in same transaction (zero minor PII in outbox)
+    token = f"TOKEN-APP-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    outbox_msg = OutboxMessage(
+        channel="sms",
+        recipient_ref=f"ATHLETE-REF-{ath.id[:8]}",
+        template_id="OPP_APPLICATION_CONFIRMATION",
+        payload_json=json.dumps({"token": token, "opportunity": opp.title}),
+        idempotency_key=f"IDEMP-OPP-{app_entry.id}-{datetime.datetime.utcnow().timestamp()}"
+    )
+    db.add_all([app_entry, outbox_msg])
+    db.commit()
+    db.refresh(app_entry)
+
+    return OpportunityApplicationResponse(
+        id=app_entry.id,
+        opportunity_id=app_entry.opportunity_id,
+        athlete_id=app_entry.athlete_id,
+        status=app_entry.status,
+        status_reason=app_entry.status_reason,
+        created_at=app_entry.created_at.isoformat()
+    )
+
+# --- PHASE 3: TRAINER CERTIFICATION & PLACEMENTS ---
+
+@api_router.get("/certifications/trainer/{trainer_id}", response_model=List[TrainerCertificationResponse])
+def get_trainer_certifications(
+    trainer_id: str,
+    db: Session = Depends(get_db)
+):
+    certs = db.query(TrainerCertification).filter(TrainerCertification.trainer_id == trainer_id).all()
+    today = datetime.date.today()
+    return [
+        TrainerCertificationResponse(
+            id=c.id,
+            trainer_id=c.trainer_id,
+            course=c.course,
+            provider=c.provider,
+            issued_on=c.issued_on.isoformat(),
+            expires_on=c.expires_on.isoformat(),
+            status=c.status,
+            days_to_expiry=(c.expires_on - today).days
+        ) for c in certs
+    ]
+
+@api_router.post("/placements", response_model=PlacementResponse, status_code=status.HTTP_201_CREATED)
+def create_placement(
+    req: CreatePlacementRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    trainer = db.query(Trainer).filter(Trainer.id == req.trainer_id).first()
+    if not trainer:
+        raise HTTPException(status_code=404, detail="Trainer not found")
+
+    # Invariant: Revoked certification blocks placement creation
+    revoked = db.query(TrainerCertification).filter(
+        TrainerCertification.trainer_id == req.trainer_id,
+        TrainerCertification.status == "REVOKED"
+    ).first()
+    if revoked:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Placement blocked: Trainer holds a REVOKED certification."
+        )
+
+    inst = db.query(Institution).filter(Institution.id == req.institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found")
+
+    placement = Placement(
+        trainer_id=trainer.id,
+        institution_id=inst.id,
+        role=req.role,
+        start_date=datetime.date.fromisoformat(req.start_date),
+        end_date=datetime.date.fromisoformat(req.end_date) if req.end_date else None
+    )
+    db.add(placement)
+    db.commit()
+    db.refresh(placement)
+
+    return PlacementResponse(
+        id=placement.id,
+        trainer_id=placement.trainer_id,
+        institution_id=placement.institution_id,
+        role=placement.role,
+        start_date=placement.start_date.isoformat(),
+        end_date=placement.end_date.isoformat() if placement.end_date else None
+    )
+
