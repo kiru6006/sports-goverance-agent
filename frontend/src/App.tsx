@@ -17,7 +17,11 @@ import {
   BookOpen,
   Briefcase,
   Bot,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  Globe,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 
 interface UserContext {
@@ -186,8 +190,30 @@ interface Facility {
   open_hours_monthly: number;
 }
 
+interface StateAdapter {
+  id: string;
+  state_id: string;
+  state_name: string;
+  regional_languages: string[];
+  priority_sports: { sport_code: string; name: string; target_age_group: string; talent_density_target: number }[];
+  local_policy_overrides: { key: string; label: string; value: string; statutory_reference: string }[];
+  is_active: boolean;
+  version: string;
+}
+
+interface OfflineQueueItem {
+  id: string;
+  client_mutation_id: string;
+  athlete_id: string;
+  athlete_name: string;
+  field_name: string;
+  field_value: any;
+  queued_at: string;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent'>('diagnosis');
+  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent' | 'adapters'>('diagnosis');
+  const [currentLang, setCurrentLang] = useState<'en' | 'hi' | 'mr'>('en');
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
     role: 'DISTRICT_OFFICER',
@@ -216,6 +242,15 @@ export default function App() {
   const [agentResponse, setAgentResponse] = useState<any | null>(null);
   const [agentProposals, setAgentProposals] = useState<any[]>([]);
   const [isAgentLoading, setIsAgentLoading] = useState(false);
+
+  // Phase 5 States: State Adapters & Offline PWA
+  const [selectedStateManifest, setSelectedStateManifest] = useState<StateAdapter | null>(null);
+  const [selectedStateId, setSelectedStateId] = useState<string>('MH');
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
+  const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
+  const [syncHistory, setSyncHistory] = useState<any[]>([]);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncOutcome, setSyncOutcome] = useState<{ applied: number; server_won: number; errors: number } | null>(null);
 
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -273,8 +308,90 @@ export default function App() {
         headers: { 'x-user-id': user.username }
       });
       if (resProp.ok) setAgentProposals(await resProp.json());
+
+      // Phase 5: Fetch State Adapter Manifest
+      const stateToLoad = user.state_id || 'MH';
+      const resManifest = await fetch(`/api/v1/adapters/states/${stateToLoad}`, {
+        headers: { 'x-user-id': user.username }
+      });
+      if (resManifest.ok) {
+        setSelectedStateManifest(await resManifest.json());
+        setSelectedStateId(stateToLoad);
+      }
+
+      // Phase 5: Fetch Sync Records
+      const resSyncRec = await fetch('/api/v1/sync/records', {
+        headers: { 'x-user-id': user.username }
+      });
+      if (resSyncRec.ok) setSyncHistory(await resSyncRec.json());
     } catch {
       // Local fallback
+    }
+  };
+
+  const handleLoadStateManifest = async (stId: string) => {
+    setSelectedStateId(stId);
+    try {
+      const res = await fetch(`/api/v1/adapters/states/${stId}`, {
+        headers: { 'x-user-id': currentUser.username }
+      });
+      if (res.ok) setSelectedStateManifest(await res.json());
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleQueueOfflineMutation = (athlete: Athlete, field: string, val: any) => {
+    const queueItem: OfflineQueueItem = {
+      id: crypto.randomUUID(),
+      client_mutation_id: `mut-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      athlete_id: athlete.id,
+      athlete_name: athlete.name,
+      field_name: field,
+      field_value: val,
+      queued_at: new Date().toISOString()
+    };
+    setOfflineQueue(prev => [queueItem, ...prev]);
+  };
+
+  const handleSyncOfflineBatch = async () => {
+    if (offlineQueue.length === 0) return;
+    setIsSyncing(true);
+    setSyncOutcome(null);
+
+    const mutations = offlineQueue.map(item => ({
+      client_mutation_id: item.client_mutation_id,
+      entity_type: 'ATHLETE',
+      entity_id: item.athlete_id,
+      field_name: item.field_name,
+      field_value: item.field_value,
+      client_timestamp: item.queued_at,
+      client_device_id: 'dso-field-pwa-01'
+    }));
+
+    try {
+      const res = await fetch('/api/v1/sync/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({ mutations })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSyncOutcome({
+          applied: data.applied_count,
+          server_won: data.conflict_server_won_count,
+          errors: data.error_count
+        });
+        setOfflineQueue([]);
+        // Refresh records & athletes
+        fetchData(currentUser);
+      } else {
+        alert("Batch sync failed to reach server.");
+      }
+    } catch {
+      alert("Network failure during sync.");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -473,9 +590,46 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
+            {/* Language Switcher */}
+            <div className="flex items-center bg-navy-800 border border-navy-700 rounded-lg p-1 text-xs text-slate-300">
+              <Globe className="w-3.5 h-3.5 ml-1 text-amber-400" />
+              <select
+                className="bg-navy-900 text-amber-300 font-semibold rounded px-2 py-1 outline-none border border-navy-700 ml-1.5"
+                value={currentLang}
+                onChange={(e) => setCurrentLang(e.target.value as any)}
+              >
+                <option value="en">English (EN)</option>
+                <option value="hi">हिन्दी (HI)</option>
+                <option value="mr">मराठी (MR)</option>
+              </select>
+            </div>
+
+            {/* Offline PWA Simulator Toggle */}
+            <button
+              onClick={() => setIsOfflineMode(!isOfflineMode)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border ${
+                isOfflineMode 
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 shadow-sm'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              }`}
+              title="Simulate offline field connectivity for PWA"
+            >
+              {isOfflineMode ? (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                  <span>Field Offline ({offlineQueue.length})</span>
+                </>
+              ) : (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Online</span>
+                </>
+              )}
+            </button>
+
             <div className="flex items-center bg-navy-800 border border-navy-700 rounded-lg p-1 text-xs">
-              <span className="text-slate-400 px-2">Role Switcher:</span>
+              <span className="text-slate-400 px-2">Role:</span>
               <select
                 className="bg-navy-900 text-amber-300 font-semibold rounded px-2 py-1 outline-none border border-navy-700"
                 value={currentUser.username}
@@ -500,10 +654,10 @@ export default function App() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-sm border-t border-navy-800/80">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-sm border-t border-navy-800/80 overflow-x-auto">
           <button
             onClick={() => setActiveTab('diagnosis')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'diagnosis' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -511,7 +665,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('registry')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'registry' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -519,7 +673,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('schemes')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'schemes' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -527,7 +681,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('verification')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'verification' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -535,7 +689,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('equipment')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'equipment' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -543,7 +697,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('facilities')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'facilities' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -551,11 +705,24 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('agent')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
               activeTab === 'agent' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Bot className="w-4 h-4 text-amber-400" /> AI Agent & Policy RAG
+          </button>
+          <button
+            onClick={() => setActiveTab('adapters')}
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'adapters' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-cyan-400" /> State Adapters & Offline PWA
+            {offlineQueue.length > 0 && (
+              <span className="bg-amber-400 text-navy-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
+                {offlineQueue.length}
+              </span>
+            )}
           </button>
         </div>
       </header>
@@ -1392,6 +1559,292 @@ export default function App() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 5: State Adapters & Offline PWA Protocol */}
+        {activeTab === 'adapters' && (
+          <div className="space-y-6">
+            {/* Header / Sub-Nav with State Switcher */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-cyan-600" />
+                  State Federation Adapter & Offline Protocol
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Federated schemas, priority sports matrix, and resilient offline-first field synchronization.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg text-xs">
+                  <span className="text-slate-500 font-semibold px-2">Active Adapter:</span>
+                  <button
+                    onClick={() => handleLoadStateManifest('MH')}
+                    className={`px-3 py-1 rounded font-bold transition-all ${
+                      selectedStateId === 'MH' ? 'bg-navy-900 text-amber-300 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Maharashtra (MH)
+                  </button>
+                  <button
+                    onClick={() => handleLoadStateManifest('HR')}
+                    className={`px-3 py-1 rounded font-bold transition-all ${
+                      selectedStateId === 'HR' ? 'bg-navy-900 text-amber-300 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Haryana (HR)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Offline PWA Dispatcher & In-Flight Sync Buffer */}
+            <div className="bg-gradient-to-r from-slate-900 to-navy-900 rounded-xl p-5 text-white shadow-md space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  {isOfflineMode ? (
+                    <span className="p-2 bg-amber-500/20 text-amber-300 rounded-lg">
+                      <WifiOff className="w-5 h-5 animate-pulse" />
+                    </span>
+                  ) : (
+                    <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                      <Wifi className="w-5 h-5" />
+                    </span>
+                  )}
+                  <div>
+                    <h4 className="font-bold text-sm">
+                      {isOfflineMode ? 'PWA Offline Field Mode Active' : 'Connected to National Registry Server'}
+                    </h4>
+                    <p className="text-[11px] text-slate-300">
+                      {isOfflineMode 
+                        ? 'Mutations are queued in local IndexedDB storage until network connectivity is restored.'
+                        : 'Immediate transaction mode. Enqueued mutations can be batch synced on demand.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSyncOfflineBatch}
+                    disabled={isSyncing || offlineQueue.length === 0}
+                    className="bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-navy-950 font-bold px-4 py-2 rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    {isSyncing ? 'Resolving Batch...' : `Sync Offline Batch (${offlineQueue.length})`}
+                  </button>
+                </div>
+              </div>
+
+              {/* Sync Outcome Banner */}
+              {syncOutcome && (
+                <div className="p-3 bg-navy-800/90 border border-navy-700 rounded-lg text-xs flex items-center justify-between text-slate-200">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
+                    <span><b>Sync Completed:</b></span>
+                    <span className="text-emerald-400 font-semibold">{syncOutcome.applied} Applied</span>
+                    <span>·</span>
+                    <span className="text-amber-400 font-semibold">{syncOutcome.server_won} Conflicts (Server Won)</span>
+                    <span>·</span>
+                    <span className="text-red-400 font-semibold">{syncOutcome.errors} Errors</span>
+                  </div>
+                  <button onClick={() => setSyncOutcome(null)} className="text-slate-400 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Interactive Queue Enqueuer */}
+              <div className="bg-navy-800/60 p-3 rounded-lg border border-navy-700/80">
+                <div className="text-[11px] font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-amber-400" />
+                  Simulate Field Officer Offline Edit:
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {athletes.slice(0, 3).map(ath => (
+                    <div key={ath.id} className="flex items-center gap-1 bg-navy-900/90 px-2 py-1 rounded border border-navy-700">
+                      <span className="text-slate-200 font-medium">{ath.name}:</span>
+                      <button
+                        onClick={() => handleQueueOfflineMutation(ath, 'guardian_ref', 'Updated Contact in Field (LWW)')}
+                        className="text-amber-300 hover:text-amber-200 text-[10px] bg-navy-800 px-1.5 py-0.5 rounded border border-navy-600"
+                        title="Contact update should succeed via Last-Write-Wins"
+                      >
+                        Edit Contact (LWW)
+                      </button>
+                      <button
+                        onClick={() => handleQueueOfflineMutation(ath, 'verification_status', 'VERIFIED')}
+                        className="text-red-300 hover:text-red-200 text-[10px] bg-navy-800 px-1.5 py-0.5 rounded border border-navy-600"
+                        title="Tampering verification status will be rejected by server-wins policy"
+                      >
+                        Force Verify (Server Wins)
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pending Offline Mutations Table */}
+              {offlineQueue.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-navy-800">
+                  <div className="text-xs font-semibold text-amber-300">Pending Field Queue:</div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 text-xs">
+                    {offlineQueue.map(item => (
+                      <div key={item.id} className="flex justify-between items-center bg-navy-800/80 px-3 py-1.5 rounded text-[11px]">
+                        <div>
+                          <span className="font-bold text-white">{item.athlete_name}</span>
+                          <span className="text-slate-400 ml-2">Field: <code className="text-cyan-300">{item.field_name}</code></span>
+                          <span className="text-slate-400 ml-2">Value: <span className="text-amber-200">"{String(item.field_value)}"</span></span>
+                        </div>
+                        <span className="text-slate-400 font-mono text-[10px]">Queued: {new Date(item.queued_at).toLocaleTimeString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* State Manifest Details */}
+            {selectedStateManifest && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Priority Sports Matrix */}
+                <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                        <Award className="w-4 h-4 text-amber-500" />
+                        State Priority Sports Matrix ({selectedStateManifest.state_name})
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Tailored sports allocation, talent density goals, and target age bands.
+                      </p>
+                    </div>
+                    <span className="bg-cyan-50 text-cyan-800 font-mono text-xs px-2 py-0.5 rounded font-bold">
+                      v{selectedStateManifest.version}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedStateManifest.priority_sports.map((ps, idx) => (
+                      <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
+                        <div>
+                          <div className="font-bold text-slate-800 flex items-center gap-2">
+                            <span>{ps.name}</span>
+                            <span className="text-[10px] font-mono bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded">
+                              {ps.sport_code}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">Target Age: {ps.target_age_group}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-bold text-navy-900">
+                            {ps.talent_density_target} / 100k
+                          </div>
+                          <div className="text-[10px] text-slate-400">Target Density</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t text-[11px] text-slate-500 flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Regional Languages Supported: <b>{selectedStateManifest.regional_languages.join(', ')}</b></span>
+                  </div>
+                </div>
+
+                {/* Local Statutory Policy Overrides */}
+                <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-blue-600" />
+                      Statutory Policy Rules ({selectedStateManifest.state_name})
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      State-specific legal frameworks and sports incentive schemes.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {selectedStateManifest.local_policy_overrides.map((pol, idx) => (
+                      <div key={idx} className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 text-xs space-y-1">
+                        <div className="font-bold text-blue-950 flex justify-between">
+                          <span>{pol.label}</span>
+                          <span className="font-mono text-[10px] text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
+                            {pol.key}
+                          </span>
+                        </div>
+                        <p className="text-slate-700 text-[11px]">{pol.value}</p>
+                        <div className="font-mono text-[10px] text-slate-500">
+                          Ref: {pol.statutory_reference}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Server Sync Log & Audit Records */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-500" />
+                    Server Sync History & Conflict Audit Log
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Deterministic conflict resolution log: Server-wins on verification state; LWW on contacts.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-slate-500">{syncHistory.length} sync record(s)</span>
+              </div>
+
+              {syncHistory.length === 0 ? (
+                <div className="p-6 text-center text-slate-400 text-xs">
+                  No sync batches processed yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b bg-slate-50 text-slate-600 font-semibold">
+                        <th className="py-2 px-3">Mutation ID</th>
+                        <th className="py-2 px-3">Field</th>
+                        <th className="py-2 px-3">Resolution Status</th>
+                        <th className="py-2 px-3">Device ID</th>
+                        <th className="py-2 px-3">Synced At</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {syncHistory.slice(0, 8).map((rec: any) => (
+                        <tr key={rec.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-mono text-[11px] text-slate-600">{rec.client_mutation_id}</td>
+                          <td className="py-2 px-3 font-semibold text-slate-800">{rec.field_name}</td>
+                          <td className="py-2 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              rec.sync_status === 'APPLIED' 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : rec.sync_status === 'CONFLICT_SERVER_WON' 
+                                ? 'bg-amber-100 text-amber-800' 
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {rec.sync_status}
+                            </span>
+                            {rec.conflict_reason && (
+                              <div className="text-[10px] text-slate-500 mt-0.5">{rec.conflict_reason}</div>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-slate-500 text-[11px]">{rec.client_device_id}</td>
+                          <td className="py-2 px-3 text-slate-400 text-[11px]">
+                            {new Date(rec.synced_at).toLocaleTimeString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

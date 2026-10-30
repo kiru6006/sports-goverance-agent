@@ -341,3 +341,39 @@ class ActionProposalResponse(BaseModel):
 class ExecuteProposalRequest(BaseModel):
     approval_token: str
     approval_notes: str
+
+# --- PHASE 5 DTOs ---
+
+class StateManifestResponse(BaseModel):
+    id: str
+    state_id: str
+    state_name: str
+    version: str
+    primary_language: str
+    supported_languages: List[str]
+    priority_sports: List[str]
+    state_policies: List[Dict[str, Any]]
+    is_active: bool
+
+class OfflineActionItem(BaseModel):
+    client_sync_id: str
+    entity_name: str
+    entity_id: str
+    action_type: str  # UPDATE, CREATE
+    client_timestamp: str
+    payload: Dict[str, Any]
+
+class SyncBatchRequest(BaseModel):
+    actions: List[OfflineActionItem]
+
+class SyncResultItem(BaseModel):
+    client_sync_id: str
+    status: str  # APPLIED, CONFLICT_SERVER_WON, REJECTED
+    conflict_notes: Optional[str] = None
+    applied_fields: List[str] = []
+
+class SyncBatchResponse(BaseModel):
+    total_received: int
+    applied_count: int
+    conflict_count: int
+    results: List[SyncResultItem]

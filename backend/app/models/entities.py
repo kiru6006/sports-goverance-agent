@@ -182,6 +182,34 @@ class ActionProposal(Base):
     executed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+# --- PHASE 5 ENTITIES ---
+
+class StateAdapterManifest(Base):
+    __tablename__ = "state_adapter_manifests"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    state_id = Column(String, unique=True, index=True, nullable=False)
+    state_name = Column(String, nullable=False)
+    version = Column(String, nullable=False)
+    primary_language = Column(String, default="hi")
+    supported_languages_json = Column(Text, nullable=False)
+    priority_sports_json = Column(Text, nullable=False)
+    state_policies_json = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class OfflineSyncRecord(Base):
+    __tablename__ = "offline_sync_records"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    client_sync_id = Column(String, unique=True, index=True, nullable=False)
+    entity_name = Column(String, nullable=False)
+    entity_id = Column(String, nullable=False)
+    client_timestamp = Column(DateTime, nullable=False)
+    server_timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    payload_json = Column(Text, nullable=False)
+    status = Column(String, default="APPLIED")  # APPLIED, CONFLICT_SERVER_WON, REJECTED
+    conflict_notes = Column(Text, nullable=True)
+    submitted_by = Column(String, ForeignKey("users.id"), nullable=False)
+
 # Existing Phase 1 & 2 Entities
 class Population(Base):
     __tablename__ = "population"

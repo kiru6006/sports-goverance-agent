@@ -1,7 +1,7 @@
 import datetime
 import json
 import math
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.core.db import get_db
@@ -16,7 +16,7 @@ from app.models.entities import (
     Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation,
     Scheme, SchemeRule, EligibilityResult, Opportunity, OpportunityApplication,
     TrainerCertification, Placement, OutboxMessage, Trainer, Institution,
-    PolicyChunk, ActionProposal
+    PolicyChunk, ActionProposal, StateAdapterManifest, OfflineSyncRecord
 )
 from app.schemas.dto import (
     AthleteSummary, AthleteDetail, AchievementResponse, JourneyEventResponse,
@@ -28,9 +28,11 @@ from app.schemas.dto import (
     EvaluateEligibilityResponse, OpportunityResponse, ApplyOpportunityRequest, OpportunityApplicationResponse,
     TrainerCertificationResponse, CreatePlacementRequest, PlacementResponse,
     PipelineMetric, AuditLogEntry, UserResponse,
-    AgentChatRequest, AgentChatResponse, CreateProposalRequest, ActionProposalResponse, ExecuteProposalRequest, PolicyCitation
+    AgentChatRequest, AgentChatResponse, CreateProposalRequest, ActionProposalResponse, ExecuteProposalRequest, PolicyCitation,
+    StateManifestResponse, SyncBatchRequest, SyncBatchResponse, SyncResultItem
 )
 from app.core.agent_service import process_agent_query, search_policy_guidelines
+from app.core.sync_protocol import process_batch_sync
 
 api_router = APIRouter()
 
@@ -1305,4 +1307,69 @@ def execute_action_proposal(
         created_at=prop.created_at.isoformat(),
         executed_at=prop.executed_at.isoformat()
     )
+
+# --- PHASE 5: STATE ADAPTERS & OFFLINE SYNC PROTOCOL ---
+
+@api_router.get("/adapters/states/{state_id}", response_model=StateManifestResponse)
+def get_state_adapter_manifest(state_id: str, db: Session = Depends(get_db)):
+    """Retrieves the active, versioned state adapter manifest. Adapters cannot alter core schemas."""
+    manifest = db.query(StateAdapterManifest).filter(
+        StateAdapterManifest.state_id == state_id.upper(),
+        StateAdapterManifest.is_active == True
+    ).first()
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"No active adapter found for state: {state_id}")
+
+    return StateManifestResponse(
+        id=manifest.id,
+        state_id=manifest.state_id,
+        state_name=manifest.state_name,
+        version=manifest.version,
+        primary_language=manifest.primary_language,
+        supported_languages=json.loads(manifest.supported_languages_json),
+        priority_sports=json.loads(manifest.priority_sports_json),
+        state_policies=json.loads(manifest.state_policies_json),
+        is_active=manifest.is_active
+    )
+
+@api_router.post("/sync/batch", response_model=SyncBatchResponse)
+def sync_offline_actions(
+    req: SyncBatchRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Processes a batch of offline client actions under the conflict resolution matrix.
+    Server wins on verification/status fields; last-write-wins on contact fields.
+    """
+    raw_actions = [a.dict() for a in req.actions]
+    sync_result = process_batch_sync(raw_actions, current_user, db)
+
+    record_audit_event(
+        db, current_user, "OFFLINE_BATCH_SYNC", "SyncProtocol", current_user.id,
+        {"batch_size": len(raw_actions), "applied": sync_result["applied_count"], "conflicts": sync_result["conflict_count"]}
+    )
+
+    return SyncBatchResponse(
+        total_received=sync_result["total_received"],
+        applied_count=sync_result["applied_count"],
+        conflict_count=sync_result["conflict_count"],
+        results=[SyncResultItem(**r) for r in sync_result["results"]]
+    )
+
+@api_router.get("/sync/records", response_model=List[Dict[str, Any]])
+def list_sync_records(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists recent offline sync entries and conflict resolutions."""
+    records = db.query(OfflineSyncRecord).order_by(OfflineSyncRecord.server_timestamp.desc()).limit(50).all()
+    return [{
+        "id": r.id,
+        "client_sync_id": r.client_sync_id,
+        "entity_name": r.entity_name,
+        "entity_id": r.entity_id,
+        "status": r.status,
+        "conflict_notes": r.conflict_notes,
+        "server_timestamp": r.server_timestamp.isoformat()
+    } for r in records]
 
