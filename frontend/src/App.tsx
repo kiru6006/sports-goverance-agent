@@ -29,7 +29,10 @@ import {
   Send,
   Phone,
   Mail,
-  FileText
+  FileText,
+  Menu,
+  ChevronDown,
+  ChevronLeft
 } from 'lucide-react';
 
 interface UserContext {
@@ -248,6 +251,21 @@ interface OfflineQueueItem {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent' | 'adapters' | 'security'>('diagnosis');
   const [currentLang, setCurrentLang] = useState<'en' | 'hi' | 'mr'>('en');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({
+    'talent_pipeline': true,
+    'infrastructure': true,
+    'ai_ecosystem': true
+  });
+
+  const toggleCategory = (catKey: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [catKey]: !prev[catKey]
+    }));
+  };
+
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
     role: 'DISTRICT_OFFICER',
@@ -803,175 +821,430 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800">
-      {/* Top Auditable App Shell */}
-      <header className="bg-navy-900 text-white shadow-md border-b border-navy-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <ShieldCheck className="w-8 h-8 text-amber-400" />
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">TrackNet / NSIS</h1>
-              <p className="text-xs text-slate-300">Phase 3: Schemes, Eligibility & Opportunity Linkages</p>
-            </div>
-          </div>
+    <div className="min-h-screen flex bg-slate-100 text-slate-800 antialiased">
+      {/* Mobile Backdrop Overlay */}
+      {isMobileSidebarOpen && (
+        <div 
+          onClick={() => setIsMobileSidebarOpen(false)}
+          className="fixed inset-0 bg-navy-950/70 z-40 lg:hidden backdrop-blur-xs transition-opacity"
+        />
+      )}
 
-          <div className="flex items-center space-x-3">
-            {/* Language Switcher */}
-            <div className="flex items-center bg-navy-800 border border-navy-700 rounded-lg p-1 text-xs text-slate-300">
-              <Globe className="w-3.5 h-3.5 ml-1 text-amber-400" />
-              <select
-                className="bg-navy-900 text-amber-300 font-semibold rounded px-2 py-1 outline-none border border-navy-700 ml-1.5"
-                value={currentLang}
-                onChange={(e) => setCurrentLang(e.target.value as any)}
-              >
-                <option value="en">English (EN)</option>
-                <option value="hi">हिन्दी (HI)</option>
-                <option value="mr">मराठी (MR)</option>
-              </select>
+      {/* Left-Side Auditable Navigation Bar */}
+      <aside 
+        className={`fixed lg:sticky top-0 h-screen z-50 bg-navy-950 text-white flex flex-col border-r border-navy-800 transition-all duration-300 ease-in-out select-none shadow-xl ${
+          isMobileSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0'
+        } ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'}`}
+      >
+        {/* Brand & Collapse Header */}
+        <div className="p-4 border-b border-navy-800 flex items-center justify-between">
+          <div className="flex items-center space-x-3 overflow-hidden">
+            <div className="w-10 h-10 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center shrink-0 shadow-inner">
+              <ShieldCheck className="w-6 h-6 text-amber-400" />
             </div>
-
-            {/* Offline PWA Simulator Toggle */}
-            <button
-              onClick={() => setIsOfflineMode(!isOfflineMode)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border ${
-                isOfflineMode 
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 shadow-sm'
-                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-              }`}
-              title="Simulate offline field connectivity for PWA"
-            >
-              {isOfflineMode ? (
-                <>
-                  <WifiOff className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                  <span>Field Offline ({offlineQueue.length})</span>
-                </>
-              ) : (
-                <>
-                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Online</span>
-                </>
-              )}
-            </button>
-
-            <div className="flex items-center bg-navy-800 border border-navy-700 rounded-lg p-1 text-xs">
-              <span className="text-slate-400 px-2">Role:</span>
-              <select
-                className="bg-navy-900 text-amber-300 font-semibold rounded px-2 py-1 outline-none border border-navy-700"
-                value={currentUser.username}
-                onChange={(e) => {
-                  const u = demoUsers.find(x => x.username === e.target.value);
-                  if (u) setCurrentUser(u);
-                }}
-              >
-                {demoUsers.map(u => (
-                  <option key={u.username} value={u.username}>
-                    {u.full_name} ({u.role})
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="bg-amber-500/20 border border-amber-400/40 text-amber-300 px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5" />
-              <span>Scope: {currentUser.district_id || currentUser.state_id || 'ALL INDIA'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-sm border-t border-navy-800/80 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('diagnosis')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'diagnosis' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Activity className="w-4 h-4" /> Pipeline Diagnosis & Gaps
-          </button>
-          <button
-            onClick={() => setActiveTab('registry')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'registry' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" /> Unified Registry
-          </button>
-          <button
-            onClick={() => setActiveTab('schemes')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'schemes' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" /> Schemes & Opportunities
-          </button>
-          <button
-            onClick={() => setActiveTab('verification')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'verification' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <CheckCircle className="w-4 h-4" /> Verification Queue
-          </button>
-          <button
-            onClick={() => setActiveTab('equipment')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'equipment' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Package className="w-4 h-4" /> Equipment Inventory
-          </button>
-          <button
-            onClick={() => setActiveTab('facilities')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'facilities' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MapPin className="w-4 h-4" /> Facilities
-          </button>
-          <button
-            onClick={() => setActiveTab('agent')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'agent' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Bot className="w-4 h-4 text-amber-400" /> AI Agent & Policy RAG
-          </button>
-          <button
-            onClick={() => setActiveTab('adapters')}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'adapters' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Globe className="w-4 h-4 text-cyan-400" /> State Adapters & Offline PWA
-            {offlineQueue.length > 0 && (
-              <span className="bg-amber-400 text-navy-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
-                {offlineQueue.length}
-              </span>
+            {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+              <div className="truncate">
+                <h1 className="text-base font-extrabold tracking-tight text-white flex items-center gap-1.5">
+                  TrackNet <span className="text-[10px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-400/30 font-semibold tracking-normal">NSIS</span>
+                </h1>
+                <p className="text-[11px] text-slate-400 truncate">Sports Governance Network</p>
+              </div>
             )}
-          </button>
+          </div>
+          
           <button
             onClick={() => {
-              setActiveTab('security');
-              handleVerifyAuditChain();
-              handleFetchKillSwitch();
+              if (window.innerWidth < 1024) {
+                setIsMobileSidebarOpen(false);
+              } else {
+                setIsSidebarCollapsed(!isSidebarCollapsed);
+              }
             }}
-            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'security' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="p-1.5 text-slate-400 hover:text-amber-300 hover:bg-navy-900 rounded-lg transition-colors"
+            title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
           >
-            <ShieldAlert className="w-4 h-4 text-emerald-400" /> Security & ASVS Resilience
+            {isSidebarCollapsed ? <ChevronRight className="w-5 h-5 hidden lg:block" /> : <ChevronLeft className="w-5 h-5 hidden lg:block" />}
+            <X className="w-5 h-5 lg:hidden" />
           </button>
         </div>
-      </header>
 
-      {/* Main Workspace */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-        {onboardSuccess && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm flex items-center justify-between">
-            <span>{onboardSuccess}</span>
-            <button onClick={() => setOnboardSuccess(null)} className="text-emerald-600 hover:text-emerald-900"><X className="w-4 h-4" /></button>
+        {/* User Scope & Active Role Badge */}
+        {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+          <div className="px-4 py-3 bg-navy-900/60 border-b border-navy-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400 font-medium">Active Jurisdiction</span>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded font-mono font-bold">
+                {currentUser.district_id || currentUser.state_id || 'ALL INDIA'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-300">
+                {currentUser.full_name.charAt(0)}
+              </div>
+              <div className="truncate text-xs">
+                <div className="font-semibold text-slate-200 truncate">{currentUser.full_name}</div>
+                <div className="text-[10px] text-slate-400">{currentUser.role}</div>
+              </div>
+            </div>
           </div>
         )}
+
+        {/* Categorized Nav Menu */}
+        <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 text-xs font-medium scrollbar-thin scrollbar-thumb-navy-800">
+          
+          {/* CATEGORY 1: Talent Pipeline & Verification */}
+          <div className="space-y-1">
+            {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
+              <button 
+                onClick={() => toggleCategory('talent_pipeline')}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-amber-400" /> Talent & Registry
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['talent_pipeline'] ? 'rotate-180' : ''}`} />
+              </button>
+            ) : (
+              <div className="w-full h-px bg-navy-800 my-2" />
+            )}
+
+            {(expandedCategories['talent_pipeline'] || isSidebarCollapsed) && (
+              <div className="space-y-0.5">
+                {/* Pipeline Diagnosis */}
+                <button
+                  onClick={() => { setActiveTab('diagnosis'); setIsMobileSidebarOpen(false); }}
+                  title="Pipeline Diagnosis & Gaps"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'diagnosis'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <Activity className={`w-4 h-4 shrink-0 ${activeTab === 'diagnosis' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Pipeline Diagnosis & Gaps</span>}
+                </button>
+
+                {/* Unified Registry */}
+                <button
+                  onClick={() => { setActiveTab('registry'); setIsMobileSidebarOpen(false); }}
+                  title="Unified Athlete Registry"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'registry'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <Users className={`w-4 h-4 shrink-0 ${activeTab === 'registry' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+                    <div className="flex-1 flex items-center justify-between">
+                      <span>Unified Registry</span>
+                      <span className="text-[10px] bg-navy-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">
+                        {athletes.length}
+                      </span>
+                    </div>
+                  )}
+                </button>
+
+                {/* Verification Queue */}
+                <button
+                  onClick={() => { setActiveTab('verification'); setIsMobileSidebarOpen(false); }}
+                  title="Verification Queue"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'verification'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <CheckCircle className={`w-4 h-4 shrink-0 ${activeTab === 'verification' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+                    <div className="flex-1 flex items-center justify-between">
+                      <span>Verification Queue</span>
+                      {athletes.filter(a => a.verification_status !== 'VERIFIED').length > 0 && (
+                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold px-1.5 py-0.2 rounded text-[10px]">
+                          {athletes.filter(a => a.verification_status !== 'VERIFIED').length}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {/* Schemes & Opportunities */}
+                <button
+                  onClick={() => { setActiveTab('schemes'); setIsMobileSidebarOpen(false); }}
+                  title="Schemes & Opportunities"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'schemes'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <BookOpen className={`w-4 h-4 shrink-0 ${activeTab === 'schemes' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Schemes & Linkages</span>}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* CATEGORY 2: Facilities & Logistics */}
+          <div className="space-y-1">
+            {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
+              <button 
+                onClick={() => toggleCategory('infrastructure')}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-blue-400" /> Infrastructure & Assets
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['infrastructure'] ? 'rotate-180' : ''}`} />
+              </button>
+            ) : (
+              <div className="w-full h-px bg-navy-800 my-2" />
+            )}
+
+            {(expandedCategories['infrastructure'] || isSidebarCollapsed) && (
+              <div className="space-y-0.5">
+                {/* Equipment Inventory */}
+                <button
+                  onClick={() => { setActiveTab('equipment'); setIsMobileSidebarOpen(false); }}
+                  title="Equipment Inventory"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'equipment'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <Package className={`w-4 h-4 shrink-0 ${activeTab === 'equipment' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+                    <div className="flex-1 flex items-center justify-between">
+                      <span>Equipment Inventory</span>
+                      {overdueLoans.length > 0 && (
+                        <span className="bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.2 rounded text-[10px] font-bold">
+                          {overdueLoans.length} Overdue
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {/* Facilities */}
+                <button
+                  onClick={() => { setActiveTab('facilities'); setIsMobileSidebarOpen(false); }}
+                  title="Facilities & Venues"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'facilities'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <MapPin className={`w-4 h-4 shrink-0 ${activeTab === 'facilities' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Facilities & Venues</span>}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* CATEGORY 3: AI Ecosystem & Security */}
+          <div className="space-y-1">
+            {(!isSidebarCollapsed || isMobileSidebarOpen) ? (
+              <button 
+                onClick={() => toggleCategory('ai_ecosystem')}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Bot className="w-3.5 h-3.5 text-cyan-400" /> AI & Operations
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCategories['ai_ecosystem'] ? 'rotate-180' : ''}`} />
+              </button>
+            ) : (
+              <div className="w-full h-px bg-navy-800 my-2" />
+            )}
+
+            {(expandedCategories['ai_ecosystem'] || isSidebarCollapsed) && (
+              <div className="space-y-0.5">
+                {/* AI Agent & Policy RAG */}
+                <button
+                  onClick={() => { setActiveTab('agent'); setIsMobileSidebarOpen(false); }}
+                  title="AI Agent & Policy RAG"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'agent'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <Bot className={`w-4 h-4 shrink-0 ${activeTab === 'agent' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>AI Agent & Policy RAG</span>}
+                </button>
+
+                {/* State Adapters & Offline PWA */}
+                <button
+                  onClick={() => { setActiveTab('adapters'); setIsMobileSidebarOpen(false); }}
+                  title="State Adapters & Offline PWA"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'adapters'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <Globe className={`w-4 h-4 shrink-0 ${activeTab === 'adapters' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && (
+                    <div className="flex-1 flex items-center justify-between">
+                      <span>State Adapters & PWA</span>
+                      {offlineQueue.length > 0 && (
+                        <span className="bg-amber-400 text-navy-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
+                          {offlineQueue.length}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {/* Security & ASVS Resilience */}
+                <button
+                  onClick={() => {
+                    setActiveTab('security');
+                    setIsMobileSidebarOpen(false);
+                    handleVerifyAuditChain();
+                    handleFetchKillSwitch();
+                  }}
+                  title="Security & ASVS Resilience"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                    activeTab === 'security'
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border border-amber-500/30 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-navy-900/80 hover:text-white'
+                  }`}
+                >
+                  <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'security' ? 'text-amber-400' : 'text-slate-400'}`} />
+                  {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Security & ASVS</span>}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Sidebar Footer Controls: Collapse Button & Direct Chat Shortcut */}
+        <div className="p-3 border-t border-navy-800 bg-navy-900/40 space-y-2">
+          <button
+            onClick={() => {
+              setActiveChatRecipient({
+                id: 'support@sportsauthority.gov.in',
+                name: 'Network Sports Desk',
+                role: 'COORDINATOR'
+              });
+              setIsMobileSidebarOpen(false);
+            }}
+            className={`w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-300 rounded-xl transition-colors font-medium text-xs ${
+              isSidebarCollapsed && !isMobileSidebarOpen ? 'px-0' : ''
+            }`}
+            title="Open Sports Network Messaging"
+          >
+            <MessageSquare className="w-4 h-4" />
+            {(!isSidebarCollapsed || isMobileSidebarOpen) && <span>Direct Messaging</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Workspace with Top Header Bar */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Sleek Top Bar with Role Switcher, Offline Indicator & Mobile Nav Trigger */}
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-3 shadow-xs">
+          <div className="flex items-center justify-between gap-4">
+            
+            {/* Left: Mobile Menu Toggle & Current Section Title */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-navy-900 hover:bg-slate-100 transition-colors"
+                title="Open Navigation Menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 capitalize flex items-center gap-2">
+                  {activeTab === 'diagnosis' && 'Pipeline Diagnosis & Gaps'}
+                  {activeTab === 'registry' && 'Unified Athlete Registry'}
+                  {activeTab === 'schemes' && 'Schemes & Opportunities Linkages'}
+                  {activeTab === 'verification' && 'District Verification Workbench'}
+                  {activeTab === 'equipment' && 'Equipment & Asset Inventory'}
+                  {activeTab === 'facilities' && 'Training Facilities & Venues'}
+                  {activeTab === 'agent' && 'Autonomous AI Agent & Policy RAG'}
+                  {activeTab === 'adapters' && 'State Adapters & Offline PWA'}
+                  {activeTab === 'security' && 'Security, Kill-Switch & Resilience'}
+                </h2>
+                <p className="text-[11px] text-slate-500 hidden sm:block">
+                  National Sports Information System · Microservices Architecture
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Language, Offline Mode Simulator, Role & Scope Context */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Language Switcher */}
+              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-1 text-xs text-slate-700">
+                <Globe className="w-3.5 h-3.5 ml-1 text-amber-600" />
+                <select
+                  className="bg-transparent text-slate-800 font-semibold rounded px-1.5 py-0.5 outline-none border-none text-xs"
+                  value={currentLang}
+                  onChange={(e) => setCurrentLang(e.target.value as any)}
+                >
+                  <option value="en">EN</option>
+                  <option value="hi">HI</option>
+                  <option value="mr">MR</option>
+                </select>
+              </div>
+
+              {/* Offline PWA Simulator Toggle */}
+              <button
+                onClick={() => setIsOfflineMode(!isOfflineMode)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border ${
+                  isOfflineMode 
+                    ? 'bg-amber-500/10 text-amber-700 border-amber-400/50 shadow-xs'
+                    : 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
+                }`}
+                title="Simulate offline field connectivity for PWA"
+              >
+                {isOfflineMode ? (
+                  <>
+                    <WifiOff className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                    <span className="hidden sm:inline">Offline ({offlineQueue.length})</span>
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">Online</span>
+                  </>
+                )}
+              </button>
+
+              {/* Role Switcher */}
+              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-1 text-xs">
+                <span className="text-slate-400 px-1 hidden md:inline">Role:</span>
+                <select
+                  className="bg-white text-navy-900 font-semibold rounded px-2 py-1 outline-none border border-slate-200 shadow-2xs text-xs"
+                  value={currentUser.username}
+                  onChange={(e) => {
+                    const u = demoUsers.find(x => x.username === e.target.value);
+                    if (u) setCurrentUser(u);
+                  }}
+                >
+                  {demoUsers.map(u => (
+                    <option key={u.username} value={u.username}>
+                      {u.full_name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Workspace */}
+        <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+          {onboardSuccess && (
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm flex items-center justify-between">
+              <span>{onboardSuccess}</span>
+              <button onClick={() => setOnboardSuccess(null)} className="text-emerald-600 hover:text-emerald-900"><X className="w-4 h-4" /></button>
+            </div>
+          )}
 
         {/* Phase 2: Pipeline Diagnosis, Gap Heatmap & Conversion Funnel */}
         {activeTab === 'diagnosis' && (
@@ -2947,18 +3220,19 @@ Findings: Criteria mismatch with primary documentation. Athlete notified with re
       )}
 
       {/* Mandatory Provenance Bottom Strip */}
-      <footer className="bg-white border-t border-slate-200 py-3 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div>
-            <span className="font-semibold text-slate-700">Data as of:</span> {new Date().toLocaleDateString()} · 
-            <span className="font-semibold text-slate-700 ml-1">Source:</span> Khelo India Registry / State Sports Directorate (Phase 2 Live)
+        <footer className="bg-white border-t border-slate-200 py-3 text-xs text-slate-500 mt-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div>
+              <span className="font-semibold text-slate-700">Data as of:</span> {new Date().toLocaleDateString()} · 
+              <span className="font-semibold text-slate-700 ml-1">Source:</span> Khelo India Registry / State Sports Directorate (Phase 2 Live)
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-slate-400">DPDP Act 2023 Compliant</span>
+              <span className="text-slate-400">Small-Cell Privacy Active</span>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-slate-400">DPDP Act 2023 Compliant</span>
-            <span className="text-slate-400">Small-Cell Privacy Active</span>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }
