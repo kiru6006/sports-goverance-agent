@@ -45,13 +45,13 @@ class AthleteDetail(AthleteSummary):
 
 class OnboardAthleteRequest(BaseModel):
     name: str
-    dob: str  # YYYY-MM-DD
+    dob: str
     gender: str
     state_id: str
     district_id: str
     sport_code: str
     guardian_ref: Optional[str] = None
-    consent_status: Optional[str] = None  # Mandatory if minor
+    consent_status: Optional[str] = None
 
 class CheckDuplicateRequest(BaseModel):
     name: str
@@ -75,7 +75,7 @@ class DuplicateCheckResponse(BaseModel):
     message: str
 
 class VerificationTransitionRequest(BaseModel):
-    target_status: str  # VERIFIED, REJECTED, NEEDS_INFO, UNDER_REVIEW
+    target_status: str
     reason: str
 
 class JourneyEventCreateRequest(BaseModel):
@@ -91,6 +91,85 @@ class FacilityResponse(BaseModel):
     latitude: float
     longitude: float
     sports: List[str]
+    open_hours_monthly: float = 300.0
+
+# Phase 2 DTOs
+class HeatmapCell(BaseModel):
+    sport_code: str
+    sport_name: str
+    district_id: str
+    state_id: str
+    age_band: str
+    identified_count: Optional[int]
+    rate_per_100k: Optional[float]
+    peer_median_rate_per_100k: Optional[float]
+    is_suppressed: bool
+    is_gap: bool
+    reasons: List[Dict[str, Any]] = []
+    as_of: str
+
+class FunnelResponse(BaseModel):
+    sport_code: Optional[str]
+    state_id: str
+    district_id: Optional[str]
+    identified: int
+    verified: int
+    supported: int
+    progressed: int
+    identified_to_verified_pct: float
+    verified_to_supported_pct: float
+    supported_to_progressed_pct: float
+    as_of: str
+
+class EquipmentItemResponse(BaseModel):
+    id: str
+    facility_id: str
+    item_name: str
+    item_type: str
+    condition: str
+    qr_code: str
+    status: str
+
+class EquipmentLoanResponse(BaseModel):
+    id: str
+    item_id: str
+    item_name: str
+    borrower_type: str
+    borrower_id: str
+    issued_at: str
+    due_at: str
+    returned_at: Optional[str]
+    condition_out: str
+    condition_in: Optional[str]
+    is_overdue: bool
+
+class IssueEquipmentRequest(BaseModel):
+    item_id: str
+    borrower_type: str
+    borrower_id: str
+    due_at: str  # YYYY-MM-DD
+    condition_out: str = "GOOD"
+
+class ReturnEquipmentRequest(BaseModel):
+    condition_in: str
+
+class UtilisationLogRequest(BaseModel):
+    period: str  # YYYY-MM-01
+    sessions: int
+    athlete_count: int
+    hours_used: float
+
+class UtilisationResponse(BaseModel):
+    id: str
+    facility_id: str
+    period: str
+    sessions: int
+    athlete_count: int
+    hours_used: float
+    capacity_hours: float
+    utilisation_rate_pct: float
+    is_underutilised: bool
+    advisory_reason: Optional[str]
 
 class PipelineMetric(BaseModel):
     district_id: str

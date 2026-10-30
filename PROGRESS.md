@@ -6,8 +6,8 @@
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | Scaffold, Core RBAC, Geo-Scoping & Audit Log | ✅ PASSED | Pytest suite: 3/3 tests passed (Healthz 200, Minor Concealment 404, Small-Cell Privacy Suppression) |
 | **Phase 1** | Unified Registry & Deduplication Engine | ✅ PASSED | Pytest suite: 16/16 tests passed (Trigram dedup, State machine 409, Coach negative check, Append-only timeline, Derived age bands) |
-| **Phase 2** | Pipeline Diagnosis, Funnels & Gap Heatmaps | ⏳ READY | Scaffolding complete; waiting for Phase 2 start approval |
-| **Phase 3** | Support Linkage, Schemes & Maker-Checker | ⏳ PENDING | - |
+| **Phase 2** | Pipeline Diagnosis, Funnels & Gap Heatmaps | ✅ PASSED | Pytest suite: 21/21 tests passed (Cumulative conversion funnel, Peer median gap analysis, Small-cell privacy suppression, Append-only equipment loans) |
+| **Phase 3** | Support Linkage, Schemes & Maker-Checker | ⏳ READY | Scaffolding complete; waiting for Phase 3 start approval |
 | **Phase 4** | Grounded Agent Layer & Action Proposals | ⏳ PENDING | - |
 | **Phase 5** | State Adapters & Offline PWA Capabilities | ⏳ PENDING | - |
 | **Phase 6** | Pilot Hardening, Security ASVS & Chaos Drill | ⏳ PENDING | - |

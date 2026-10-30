@@ -12,6 +12,7 @@ import {
   Clock,
   Award,
   ChevronRight,
+  Package,
   X
 } from 'lucide-react';
 
@@ -56,18 +57,57 @@ interface Athlete {
   journey_events?: JourneyEvent[];
 }
 
-interface Metric {
-  district_id: string;
-  state_id: string;
+interface HeatmapCell {
   sport_code: string;
   sport_name: string;
+  district_id: string;
+  state_id: string;
   age_band: string;
   identified_count: number | null;
-  verified_count: number | null;
-  supported_count: number | null;
-  progressed_count: number | null;
+  rate_per_100k: number | null;
+  peer_median_rate_per_100k: number | null;
   is_suppressed: boolean;
+  is_gap: boolean;
+  reasons: any[];
   as_of: string;
+}
+
+interface FunnelData {
+  sport_code: string | null;
+  state_id: string;
+  district_id: string | null;
+  identified: number;
+  verified: number;
+  supported: number;
+  progressed: number;
+  identified_to_verified_pct: number;
+  verified_to_supported_pct: number;
+  supported_to_progressed_pct: number;
+  as_of: string;
+}
+
+interface EquipmentItem {
+  id: string;
+  facility_id: string;
+  item_name: string;
+  item_type: string;
+  condition: string;
+  qr_code: string;
+  status: string;
+}
+
+interface EquipmentLoan {
+  id: string;
+  item_id: string;
+  item_name: string;
+  borrower_type: string;
+  borrower_id: string;
+  issued_at: string;
+  due_at: string;
+  returned_at: string | null;
+  condition_out: string;
+  condition_in: string | null;
+  is_overdue: boolean;
 }
 
 interface Facility {
@@ -78,10 +118,11 @@ interface Facility {
   latitude: number;
   longitude: number;
   sports: string[];
+  open_hours_monthly: number;
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'facilities'>('registry');
+  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities'>('diagnosis');
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
     role: 'DISTRICT_OFFICER',
@@ -89,12 +130,16 @@ export default function App() {
     district_id: 'MH-PUN',
     full_name: 'Pune District Sports Officer'
   });
+  
   const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [heatmapCells, setHeatmapCells] = useState<HeatmapCell[]>([]);
+  const [funnel, setFunnel] = useState<FunnelData | null>(null);
+  const [equipmentItems, setEquipmentItems] = useState<EquipmentItem[]>([]);
+  const [overdueLoans, setOverdueLoans] = useState<EquipmentLoan[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
-  
-  // Modals
+
+  // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
   const [onboardForm, setOnboardForm] = useState({
     name: '',
@@ -119,18 +164,23 @@ export default function App() {
 
   const fetchData = async (user: UserContext) => {
     try {
-      const [resAth, resMet, resFac] = await Promise.all([
+      const [resAth, resHeat, resFun, resEq, resOver, resFac] = await Promise.all([
         fetch('/api/v1/registry/athletes', { headers: { 'x-user-id': user.username } }),
-        fetch('/api/v1/pipeline/snapshots', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/pipeline/diagnosis/heatmap', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/pipeline/funnel', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/equipment/items', { headers: { 'x-user-id': user.username } }),
+        fetch('/api/v1/equipment/overdue', { headers: { 'x-user-id': user.username } }),
         fetch('/api/v1/facilities', { headers: { 'x-user-id': user.username } })
       ]);
-      if (resAth.ok && resMet.ok) {
-        setAthletes(await resAth.json());
-        setMetrics(await resMet.json());
-        if (resFac.ok) setFacilities(await resFac.json());
-      }
+
+      if (resAth.ok) setAthletes(await resAth.json());
+      if (resHeat.ok) setHeatmapCells(await resHeat.json());
+      if (resFun.ok) setFunnel(await resFun.json());
+      if (resEq.ok) setEquipmentItems(await resEq.json());
+      if (resOver.ok) setOverdueLoans(await resOver.json());
+      if (resFac.ok) setFacilities(await resFac.json());
     } catch {
-      // Offline fallback handling
+      // Local fallback
     }
   };
 
@@ -143,11 +193,9 @@ export default function App() {
       const res = await fetch(`/api/v1/registry/athletes/${athId}`, {
         headers: { 'x-user-id': currentUser.username }
       });
-      if (res.ok) {
-        setSelectedAthlete(await res.json());
-      }
-    } catch {
-      console.error("Failed to load athlete profile");
+      if (res.ok) setSelectedAthlete(await res.json());
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -156,7 +204,6 @@ export default function App() {
     setDuplicateAlert(null);
     setOnboardSuccess(null);
 
-    // Step 1: Duplicate check
     try {
       const dupRes = await fetch('/api/v1/registry/athletes/check-duplicate', {
         method: 'POST',
@@ -176,7 +223,6 @@ export default function App() {
       console.error(err);
     }
 
-    // Step 2: Final submit
     try {
       const res = await fetch('/api/v1/registry/athletes', {
         method: 'POST',
@@ -185,7 +231,7 @@ export default function App() {
       });
       if (res.ok) {
         const created = await res.json();
-        setOnboardSuccess(`Successfully onboarded athlete with provisional KID: ${created.kid}`);
+        setOnboardSuccess(`Successfully onboarded athlete: ${created.kid}`);
         setShowOnboardModal(false);
         setDuplicateAlert(null);
         fetchData(currentUser);
@@ -193,7 +239,7 @@ export default function App() {
         const err = await res.json();
         alert(`Error: ${err.detail}`);
       }
-    } catch (err) {
+    } catch {
       alert("Submission error");
     }
   };
@@ -207,9 +253,6 @@ export default function App() {
       });
       if (res.ok) {
         fetchData(currentUser);
-        if (selectedAthlete && selectedAthlete.id === athleteId) {
-          viewAthleteProfile(athleteId);
-        }
       } else {
         const err = await res.json();
         alert(`Verification rejected: ${err.detail}`);
@@ -228,7 +271,7 @@ export default function App() {
             <ShieldCheck className="w-8 h-8 text-amber-400" />
             <div>
               <h1 className="text-xl font-bold tracking-tight">TrackNet / NSIS</h1>
-              <p className="text-xs text-slate-300">Phase 1: Unified Registry & Verification System</p>
+              <p className="text-xs text-slate-300">Phase 2: Pipeline Diagnosis, Funnels & Gap Heatmaps</p>
             </div>
           </div>
 
@@ -261,6 +304,14 @@ export default function App() {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-sm border-t border-navy-800/80">
           <button
+            onClick={() => setActiveTab('diagnosis')}
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+              activeTab === 'diagnosis' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Activity className="w-4 h-4" /> Pipeline Diagnosis & Gaps
+          </button>
+          <button
             onClick={() => setActiveTab('registry')}
             className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
               activeTab === 'registry' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -277,12 +328,12 @@ export default function App() {
             <CheckCircle className="w-4 h-4" /> Verification Queue
           </button>
           <button
-            onClick={() => setActiveTab('diagnosis')}
+            onClick={() => setActiveTab('equipment')}
             className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
-              activeTab === 'diagnosis' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+              activeTab === 'equipment' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Activity className="w-4 h-4" /> Pipeline Diagnosis
+            <Package className="w-4 h-4" /> Equipment Inventory
           </button>
           <button
             onClick={() => setActiveTab('facilities')}
@@ -290,7 +341,7 @@ export default function App() {
               activeTab === 'facilities' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <MapPin className="w-4 h-4" /> Facilities Inventory
+            <MapPin className="w-4 h-4" /> Facilities
           </button>
         </div>
       </header>
@@ -301,6 +352,203 @@ export default function App() {
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm flex items-center justify-between">
             <span>{onboardSuccess}</span>
             <button onClick={() => setOnboardSuccess(null)} className="text-emerald-600 hover:text-emerald-900"><X className="w-4 h-4" /></button>
+          </div>
+        )}
+
+        {/* Phase 2: Pipeline Diagnosis, Gap Heatmap & Conversion Funnel */}
+        {activeTab === 'diagnosis' && (
+          <div className="space-y-6">
+            {/* Conversion Funnel Banner */}
+            {funnel && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-base">Cumulative Athlete Conversion Funnel</h3>
+                    <p className="text-xs text-slate-500">
+                      Scope: {funnel.district_id || funnel.state_id} · Invariant: Identified ≥ Verified ≥ Supported ≥ Progressed
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400">As of: {new Date(funnel.as_of).toLocaleDateString()}</span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 text-center">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div className="text-xs text-slate-500 font-medium">1. Identified</div>
+                    <div className="text-2xl font-bold text-slate-800 my-1">{funnel.identified}</div>
+                    <div className="text-[11px] text-slate-400">100% of pipeline</div>
+                  </div>
+
+                  <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-200">
+                    <div className="text-xs text-blue-700 font-medium">2. Verified</div>
+                    <div className="text-2xl font-bold text-blue-600 my-1">{funnel.verified}</div>
+                    <div className="text-[11px] text-blue-600 font-semibold">{funnel.identified_to_verified_pct}% conversion</div>
+                  </div>
+
+                  <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-200">
+                    <div className="text-xs text-emerald-700 font-medium">3. Supported</div>
+                    <div className="text-2xl font-bold text-emerald-600 my-1">{funnel.supported}</div>
+                    <div className="text-[11px] text-emerald-600 font-semibold">{funnel.verified_to_supported_pct}% conversion</div>
+                  </div>
+
+                  <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200">
+                    <div className="text-xs text-amber-700 font-medium">4. Progressed</div>
+                    <div className="text-2xl font-bold text-amber-600 my-1">{funnel.progressed}</div>
+                    <div className="text-[11px] text-amber-600 font-semibold">{funnel.supported_to_progressed_pct}% conversion</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Gap Heatmap */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">District Gap Diagnosis Matrix</h3>
+                  <p className="text-xs text-slate-500">
+                    Compares identified athletes per 100,000 population against state peer median.
+                  </p>
+                </div>
+                <div className="text-xs font-semibold text-slate-500 bg-slate-200/80 px-2.5 py-1 rounded-md">
+                  Policy Guideline: Not a district performance ranking
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {heatmapCells.map((cell, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`rounded-xl border p-5 shadow-sm space-y-3 ${
+                      cell.is_gap ? 'bg-red-50/40 border-red-200' : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs uppercase tracking-wider font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                          {cell.sport_name} ({cell.sport_code})
+                        </span>
+                        <h4 className="font-bold text-slate-900 mt-1">
+                          District: {cell.district_id} · Age Band: {cell.age_band}
+                        </h4>
+                      </div>
+
+                      {cell.is_suppressed ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-100 border border-slate-300 px-2 py-1 rounded">
+                          <EyeOff className="w-3.5 h-3.5" /> Suppressed (&lt;5)
+                        </span>
+                      ) : cell.is_gap ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-100 border border-red-300 px-2 py-1 rounded font-semibold">
+                          <AlertTriangle className="w-3.5 h-3.5" /> Pipeline Gap Flag
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded font-medium">
+                          <CheckCircle className="w-3.5 h-3.5" /> Adequate Coverage
+                        </span>
+                      )}
+                    </div>
+
+                    {cell.is_suppressed ? (
+                      <div className="p-4 bg-slate-50 rounded-lg text-center text-xs text-slate-500 border border-dashed border-slate-300">
+                        Identified count is under threshold (&lt;5). Redacted to prevent re-identification.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 text-xs">
+                        <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 p-2.5 rounded-lg">
+                          <div>
+                            <div className="text-slate-400">Identified</div>
+                            <div className="font-bold text-slate-800 text-sm">{cell.identified_count}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Rate / 100k</div>
+                            <div className="font-bold text-slate-800 text-sm">{cell.rate_per_100k}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Peer Median</div>
+                            <div className="font-bold text-slate-800 text-sm">{cell.peer_median_rate_per_100k}</div>
+                          </div>
+                        </div>
+
+                        {cell.is_gap && cell.reasons.length > 0 && (
+                          <div className="p-2.5 bg-red-100/60 rounded text-red-800 text-[11px] space-y-1">
+                            <div className="font-semibold">Explainable Reasons:</div>
+                            <div>• District rate ({cell.rate_per_100k}/100k) is below 50% of peer median ({cell.peer_median_rate_per_100k}/100k).</div>
+                            <div>• Deficit: {cell.reasons[0]?.gap_deficit_per_100k} athletes per 100k below target threshold.</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 2: Equipment Inventory & Overdue Loans */}
+        {activeTab === 'equipment' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Equipment Management & Lending Log</h3>
+                <p className="text-xs text-slate-500">
+                  Append-only loans log. Overdue tracking and condition verification.
+                </p>
+              </div>
+            </div>
+
+            {/* Overdue Alert Banner */}
+            {overdueLoans.length > 0 && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-red-800 font-semibold text-sm">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                  {overdueLoans.length} Overdue Equipment Loan(s) Require Officer Follow-up
+                </div>
+                <div className="space-y-1 text-xs text-red-700">
+                  {overdueLoans.map(l => (
+                    <div key={l.id} className="flex justify-between items-center py-1 border-b border-red-200/60">
+                      <span><b>{l.item_name}</b> (Borrower Ref: {l.borrower_id})</span>
+                      <span className="font-medium">Due Date: {new Date(l.due_at).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Equipment Items Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-slate-600 text-xs font-semibold uppercase">
+                  <tr>
+                    <th className="px-6 py-3 text-left">QR Code</th>
+                    <th className="px-6 py-3 text-left">Item Name</th>
+                    <th className="px-6 py-3 text-left">Category</th>
+                    <th className="px-6 py-3 text-left">Condition</th>
+                    <th className="px-6 py-3 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white text-xs">
+                  {equipmentItems.map(item => (
+                    <tr key={item.id}>
+                      <td className="px-6 py-3 font-mono text-slate-600">{item.qr_code}</td>
+                      <td className="px-6 py-3 font-medium text-slate-900">{item.item_name}</td>
+                      <td className="px-6 py-3 text-slate-600">{item.item_type}</td>
+                      <td className="px-6 py-3">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-medium">
+                          {item.condition}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <span className={`px-2 py-0.5 rounded font-semibold ${
+                          item.status === 'AVAILABLE' ? 'bg-emerald-50 text-emerald-700' :
+                          item.status === 'ISSUED' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+                        }`}>
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -391,7 +639,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Verification Queue View */}
+        {/* Verification Workbench */}
         {activeTab === 'verification' && (
           <div className="space-y-4">
             <div>
@@ -489,66 +737,9 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* Pipeline Diagnosis View */}
-        {activeTab === 'diagnosis' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Pipeline Retention & Gap Diagnosis</h2>
-              <p className="text-xs text-slate-500">Sport × District × Age-Band Funnel with Small-Cell Suppression (&lt;5)</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {metrics.map((m, idx) => (
-                <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                    <div>
-                      <span className="text-xs font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                        {m.sport_name} ({m.sport_code})
-                      </span>
-                      <h3 className="font-semibold text-slate-800 mt-1">
-                        District: {m.district_id} · Band: {m.age_band}
-                      </h3>
-                    </div>
-                    {m.is_suppressed && (
-                      <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded">
-                        <EyeOff className="w-3.5 h-3.5" /> Privacy Suppressed (&lt;5)
-                      </span>
-                    )}
-                  </div>
-
-                  {m.is_suppressed ? (
-                    <div className="p-6 bg-slate-50 rounded-lg text-center text-sm text-slate-500 border border-dashed border-slate-300">
-                      Identified count is under threshold (&lt;5). Numbers redacted to prevent individual re-identification.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2 text-center">
-                      <div className="bg-slate-50 p-2.5 rounded-lg">
-                        <div className="text-xs text-slate-500">Identified</div>
-                        <div className="text-xl font-bold text-slate-800">{m.identified_count}</div>
-                      </div>
-                      <div className="bg-slate-50 p-2.5 rounded-lg">
-                        <div className="text-xs text-slate-500">Verified</div>
-                        <div className="text-xl font-bold text-blue-600">{m.verified_count}</div>
-                      </div>
-                      <div className="bg-slate-50 p-2.5 rounded-lg">
-                        <div className="text-xs text-slate-500">Supported</div>
-                        <div className="text-xl font-bold text-emerald-600">{m.supported_count}</div>
-                      </div>
-                      <div className="bg-slate-50 p-2.5 rounded-lg">
-                        <div className="text-xs text-slate-500">Progressed</div>
-                        <div className="text-xl font-bold text-amber-600">{m.progressed_count}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </main>
 
-      {/* Onboarding Modal with Duplicate-Candidate Warning */}
+      {/* Onboarding Modal */}
       {showOnboardModal && (
         <div className="fixed inset-0 bg-navy-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
@@ -610,27 +801,6 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700">State</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={onboardForm.state_id}
-                    className="w-full mt-1 p-2 border bg-slate-50 rounded-lg text-slate-500"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700">District</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={onboardForm.district_id}
-                    className="w-full mt-1 p-2 border bg-slate-50 rounded-lg text-slate-500"
-                  />
-                </div>
-              </div>
-
               <div>
                 <label className="font-semibold text-slate-700">Primary Sport</label>
                 <select
@@ -646,7 +816,6 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Minor Consent Block */}
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
                 <div className="font-semibold text-blue-900 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" /> Minor Privacy & Guardian Consent (DPDP Act)
@@ -692,7 +861,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Athlete Profile Modal (Tabs: Achievements & Journey Timeline) */}
+      {/* Athlete Profile Modal */}
       {selectedAthlete && (
         <div className="fixed inset-0 bg-navy-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
@@ -714,7 +883,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Achievements Section */}
             <div className="space-y-2">
               <h4 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
                 <Award className="w-4 h-4 text-amber-500" /> Verified Achievements
@@ -738,7 +906,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Append-Only Journey Timeline */}
             <div className="space-y-2 pt-2 border-t">
               <h4 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-blue-500" /> Athlete Journey Timeline (Append-Only)
@@ -766,11 +933,11 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
             <span className="font-semibold text-slate-700">Data as of:</span> {new Date().toLocaleDateString()} · 
-            <span className="font-semibold text-slate-700 ml-1">Source:</span> Khelo India Registry / State Sports Directorate (Phase 1 Validated)
+            <span className="font-semibold text-slate-700 ml-1">Source:</span> Khelo India Registry / State Sports Directorate (Phase 2 Live)
           </div>
           <div className="flex items-center gap-4">
             <span className="text-slate-400">DPDP Act 2023 Compliant</span>
-            <span className="text-slate-400">MeitY Residency Guard</span>
+            <span className="text-slate-400">Small-Cell Privacy Active</span>
           </div>
         </div>
       </footer>

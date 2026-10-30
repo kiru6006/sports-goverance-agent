@@ -9,13 +9,17 @@ from app.core.rbac import get_current_user, verify_district_scope, record_audit_
 from app.core.crypto import encrypt_pii, decrypt_pii
 from app.core.age_bands import get_age_band, calculate_age
 from app.core.dedup import find_duplicate_candidates
+from app.core.pipeline_engine import evaluate_district_gap, calculate_funnel_stages, compute_peer_median
 from app.models.entities import (
-    User, Athlete, Sport, Facility, Achievement, JourneyEvent, PipelineSnapshot, AuditLog
+    User, Athlete, Sport, Facility, Achievement, JourneyEvent, PipelineSnapshot, AuditLog,
+    Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation
 )
 from app.schemas.dto import (
     AthleteSummary, AthleteDetail, AchievementResponse, JourneyEventResponse,
     OnboardAthleteRequest, CheckDuplicateRequest, DuplicateCheckResponse, DuplicateCandidate,
     VerificationTransitionRequest, JourneyEventCreateRequest, FacilityResponse,
+    HeatmapCell, FunnelResponse, EquipmentItemResponse, EquipmentLoanResponse,
+    IssueEquipmentRequest, ReturnEquipmentRequest, UtilisationLogRequest, UtilisationResponse,
     PipelineMetric, AuditLogEntry, UserResponse
 )
 
@@ -29,7 +33,8 @@ def get_auth_context(current_user: User = Depends(get_current_user)):
 def list_demo_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
-# Duplicate Candidate Check (Never auto-merges)
+# --- REGISTRY & ONBOARDING ---
+
 @api_router.post("/registry/athletes/check-duplicate", response_model=DuplicateCheckResponse)
 def check_duplicate_candidate(
     req: CheckDuplicateRequest,
@@ -61,17 +66,14 @@ def check_duplicate_candidate(
         message="Deduplication candidates evaluated. Auto-merge disabled. Human review required." if candidates else "No duplicates detected."
     )
 
-# Athlete Onboarding
 @api_router.post("/registry/athletes", response_model=AthleteSummary, status_code=status.HTTP_201_CREATED)
 def onboard_athlete(
     req: OnboardAthleteRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Verify geographic scope for creation
     verify_district_scope(req.district_id, current_user)
 
-    # Parse and compute age
     try:
         dob_date = datetime.date.fromisoformat(req.dob)
     except ValueError:
@@ -80,7 +82,6 @@ def onboard_athlete(
     age = calculate_age(dob_date)
     is_minor = age < 18
 
-    # Minor Consent Invariant: Under 18 requires consent_status
     if is_minor:
         if not req.consent_status or req.consent_status not in ("GRANTED", "PENDING"):
             raise HTTPException(
@@ -140,7 +141,6 @@ def onboard_athlete(
         is_synthetic=athlete.is_synthetic
     )
 
-# List Athletes with filtering & scope enforcement
 @api_router.get("/registry/athletes", response_model=List[AthleteSummary])
 def list_athletes(
     district_id: Optional[str] = None,
@@ -170,7 +170,6 @@ def list_athletes(
     summaries = []
     
     for ath, sport in results:
-        # Conceal minor records to unauthorized viewers
         if ath.is_minor and current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER") and current_user.district_id != ath.district_id:
             continue
         
@@ -202,7 +201,6 @@ def list_athletes(
         ))
     return summaries
 
-# Athlete Details (Profile + Journey Timeline)
 @api_router.get("/registry/athletes/{athlete_id}", response_model=AthleteDetail)
 def get_athlete_details(
     athlete_id: str,
@@ -215,7 +213,6 @@ def get_athlete_details(
     
     ath, sport = row
     
-    # Minor concealment invariant: unauthorized roles get 404, never 403
     if ath.is_minor and current_user.role in ("DISTRICT_OFFICER", "COACH") and current_user.district_id != ath.district_id:
         raise HTTPException(status_code=404, detail="Athlete record not found")
 
@@ -267,7 +264,6 @@ def get_athlete_details(
         ]
     )
 
-# Verification State Machine Transition
 VALID_TRANSITIONS = {
     "SUBMITTED": ["UNDER_REVIEW"],
     "UNDER_REVIEW": ["VERIFIED", "REJECTED", "NEEDS_INFO"],
@@ -287,15 +283,12 @@ def transition_verification_status(
     if not ath:
         raise HTTPException(status_code=404, detail="Athlete record not found")
 
-    # Authorisation: Only District Officer or above can verify
     if current_user.role not in ("DISTRICT_OFFICER", "STATE_OFFICER", "NATIONAL_ADMIN"):
         raise HTTPException(status_code=403, detail="Coaches cannot execute verification transitions")
 
-    # Authorisation: Scope check
     if current_user.role == "DISTRICT_OFFICER" and current_user.district_id != ath.district_id:
         raise HTTPException(status_code=403, detail="District Officers can only verify athletes within their district")
 
-    # Invariant: Coach cannot verify their own athlete
     if ath.coach_id and ath.coach_id == current_user.id:
         raise HTTPException(status_code=403, detail="Conflict of interest: You cannot verify an athlete you coach")
 
@@ -308,7 +301,6 @@ def transition_verification_status(
             detail=f"Invalid verification transition from {current_status} to {req.target_status}. Allowed next states: {allowed_next}"
         )
 
-    # Execute transition
     ath.verification_status = req.target_status
     ath.verifier_id = current_user.id
     ath.verification_notes = req.reason
@@ -343,7 +335,6 @@ def transition_verification_status(
         is_synthetic=ath.is_synthetic
     )
 
-# Append-Only Journey Events
 @api_router.post("/registry/athletes/{athlete_id}/journey", response_model=JourneyEventResponse, status_code=status.HTTP_201_CREATED)
 def append_journey_event(
     athlete_id: str,
@@ -393,7 +384,338 @@ def update_journey_event_rejected():
 def delete_journey_event_rejected():
     raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Journey events are strictly append-only")
 
-# Facilities with Radius Query
+# --- PHASE 2: PIPELINE DIAGNOSIS, GAPS & FUNNELS ---
+
+@api_router.get("/pipeline/diagnosis/heatmap", response_model=List[HeatmapCell])
+def get_diagnosis_heatmap(
+    state_id: Optional[str] = None,
+    sport_code: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_state = state_id or current_user.state_id or "MH"
+    
+    if current_user.role == "DISTRICT_OFFICER" and current_user.state_id != target_state:
+        raise HTTPException(status_code=403, detail="Cross-state aggregate access denied")
+
+    sports_query = db.query(Sport)
+    if sport_code:
+        sports_query = sports_query.filter(Sport.code == sport_code)
+    sports = sports_query.all()
+
+    # Get populations in target state
+    populations = db.query(Population).filter(Population.state_id == target_state).all()
+    pop_map = {(p.district_id, p.age_band): p.population_count for p in populations}
+
+    snapshots = db.query(PipelineSnapshot).filter(PipelineSnapshot.state_id == target_state).all()
+    
+    # Pre-calculate rates for peer-median
+    rates_by_sport_band = {}
+    for snap in snapshots:
+        pop = pop_map.get((snap.district_id, snap.age_band), 200000)
+        rate = (snap.identified_count / pop) * 100000 if pop > 0 else 0.0
+        rates_by_sport_band.setdefault((snap.sport_id, snap.age_band), []).append(rate)
+
+    cells = []
+    for snap in snapshots:
+        # RBAC scope check
+        if current_user.role in ("DISTRICT_OFFICER", "COACH") and current_user.district_id != snap.district_id:
+            continue
+
+        sport = next((s for s in sports if s.id == snap.sport_id), None)
+        if not sport:
+            continue
+
+        pop = pop_map.get((snap.district_id, snap.age_band), 200000)
+        dist_rate = (snap.identified_count / pop) * 100000 if pop > 0 else 0.0
+        peer_rates = rates_by_sport_band.get((snap.sport_id, snap.age_band), [dist_rate])
+
+        gap_eval = evaluate_district_gap(dist_rate, peer_rates)
+
+        # Small-cell suppression invariant (< 5)
+        is_suppressed = snap.is_suppressed or (snap.identified_count < 5)
+        count_out = None if is_suppressed else snap.identified_count
+        rate_out = None if is_suppressed else round(dist_rate, 2)
+        peer_median_out = None if is_suppressed else gap_eval["peer_median"]
+
+        cells.append(HeatmapCell(
+            sport_code=sport.code,
+            sport_name=sport.name,
+            district_id=snap.district_id,
+            state_id=snap.state_id,
+            age_band=snap.age_band,
+            identified_count=count_out,
+            rate_per_100k=rate_out,
+            peer_median_rate_per_100k=peer_median_out,
+            is_suppressed=is_suppressed,
+            is_gap=gap_eval["is_gap"] and not is_suppressed,
+            reasons=gap_eval["reasons"] if not is_suppressed else [],
+            as_of=snap.as_of.isoformat()
+        ))
+
+    return cells
+
+@api_router.get("/pipeline/funnel", response_model=FunnelResponse)
+def get_conversion_funnel(
+    state_id: Optional[str] = None,
+    district_id: Optional[str] = None,
+    sport_code: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_state = state_id or current_user.state_id or "MH"
+    target_dist = district_id or (current_user.district_id if current_user.role == "DISTRICT_OFFICER" else None)
+
+    if current_user.role == "DISTRICT_OFFICER" and current_user.district_id != target_dist:
+        raise HTTPException(status_code=403, detail="Cross-district aggregate access denied")
+
+    ath_query = db.query(Athlete).filter(Athlete.state_id == target_state)
+    if target_dist:
+        ath_query = ath_query.filter(Athlete.district_id == target_dist)
+    if sport_code:
+        sport = db.query(Sport).filter(Sport.code == sport_code).first()
+        if sport:
+            ath_query = ath_query.filter(Athlete.primary_sport_id == sport.id)
+
+    athletes = ath_query.all()
+    support_records = db.query(SupportRecord).all()
+    achievements = db.query(Achievement).all()
+
+    ath_dicts = [{"id": a.id, "verification_status": a.verification_status} for a in athletes]
+    sr_dicts = [{"athlete_id": s.athlete_id, "status": s.status, "start_date": s.start_date} for s in support_records]
+    ach_dicts = [{"athlete_id": a.athlete_id, "event_date": a.event_date} for a in achievements]
+
+    stages = calculate_funnel_stages(ath_dicts, sr_dicts, ach_dicts)
+
+    id_count = stages["identified"]
+    ver_count = stages["verified"]
+    sup_count = stages["supported"]
+    prog_count = stages["progressed"]
+
+    return FunnelResponse(
+        sport_code=sport_code,
+        state_id=target_state,
+        district_id=target_dist,
+        identified=id_count,
+        verified=ver_count,
+        supported=sup_count,
+        progressed=prog_count,
+        identified_to_verified_pct=round((ver_count / id_count * 100), 1) if id_count > 0 else 0.0,
+        verified_to_supported_pct=round((sup_count / ver_count * 100), 1) if ver_count > 0 else 0.0,
+        supported_to_progressed_pct=round((prog_count / sup_count * 100), 1) if sup_count > 0 else 0.0,
+        as_of=datetime.datetime.utcnow().isoformat()
+    )
+
+# --- PHASE 2: EQUIPMENT INVENTORY & LOANS ---
+
+@api_router.get("/equipment/items", response_model=List[EquipmentItemResponse])
+def list_equipment_items(
+    facility_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(EquipmentItem).join(Facility, EquipmentItem.facility_id == Facility.id)
+    if current_user.role in ("DISTRICT_OFFICER", "COACH"):
+        query = query.filter(Facility.district_id == current_user.district_id)
+    if facility_id:
+        query = query.filter(EquipmentItem.facility_id == facility_id)
+
+    return [
+        EquipmentItemResponse(
+            id=item.id,
+            facility_id=item.facility_id,
+            item_name=item.item_name,
+            item_type=item.item_type,
+            condition=item.condition,
+            qr_code=item.qr_code,
+            status=item.status
+        ) for item in query.all()
+    ]
+
+@api_router.get("/equipment/overdue", response_model=List[EquipmentLoanResponse])
+def list_overdue_equipment_loans(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    now = datetime.datetime.utcnow()
+    query = db.query(EquipmentLoan, EquipmentItem, Facility).\
+        join(EquipmentItem, EquipmentLoan.item_id == EquipmentItem.id).\
+        join(Facility, EquipmentItem.facility_id == Facility.id).\
+        filter(EquipmentLoan.due_at < now, EquipmentLoan.returned_at.is_(None))
+
+    if current_user.role in ("DISTRICT_OFFICER", "COACH"):
+        query = query.filter(Facility.district_id == current_user.district_id)
+
+    results = []
+    for loan, item, fac in query.all():
+        results.append(EquipmentLoanResponse(
+            id=loan.id,
+            item_id=loan.item_id,
+            item_name=item.item_name,
+            borrower_type=loan.borrower_type,
+            borrower_id=loan.borrower_id,
+            issued_at=loan.issued_at.isoformat(),
+            due_at=loan.due_at.isoformat(),
+            returned_at=loan.returned_at.isoformat() if loan.returned_at else None,
+            condition_out=loan.condition_out,
+            condition_in=loan.condition_in,
+            is_overdue=True
+        ))
+    return results
+
+@api_router.post("/equipment/loans/issue", response_model=EquipmentLoanResponse, status_code=status.HTTP_201_CREATED)
+def issue_equipment(
+    req: IssueEquipmentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    item = db.query(EquipmentItem).join(Facility).filter(EquipmentItem.id == req.item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+
+    fac = db.query(Facility).filter(Facility.id == item.facility_id).first()
+    verify_district_scope(fac.district_id, current_user)
+
+    if item.status != "AVAILABLE":
+        raise HTTPException(status_code=400, detail=f"Item is currently {item.status}, not AVAILABLE")
+
+    try:
+        due_datetime = datetime.datetime.fromisoformat(req.due_at)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid due_at date format")
+
+    loan = EquipmentLoan(
+        item_id=item.id,
+        borrower_type=req.borrower_type,
+        borrower_id=req.borrower_id,
+        issued_at=datetime.datetime.utcnow(),
+        due_at=due_datetime,
+        condition_out=req.condition_out,
+        issued_by=current_user.id
+    )
+    item.status = "ISSUED"
+    db.add(loan)
+    db.commit()
+    db.refresh(loan)
+
+    record_audit_event(
+        db, current_user, "ISSUE_EQUIPMENT", "EquipmentLoan", loan.id,
+        {"item_id": item.id, "qr_code": item.qr_code, "borrower": req.borrower_id}
+    )
+
+    return EquipmentLoanResponse(
+        id=loan.id,
+        item_id=loan.item_id,
+        item_name=item.item_name,
+        borrower_type=loan.borrower_type,
+        borrower_id=loan.borrower_id,
+        issued_at=loan.issued_at.isoformat(),
+        due_at=loan.due_at.isoformat(),
+        returned_at=None,
+        condition_out=loan.condition_out,
+        condition_in=None,
+        is_overdue=False
+    )
+
+@api_router.post("/equipment/loans/{loan_id}/return", response_model=EquipmentLoanResponse)
+def return_equipment(
+    loan_id: str,
+    req: ReturnEquipmentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    loan = db.query(EquipmentLoan).filter(EquipmentLoan.id == loan_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Equipment loan record not found")
+
+    item = db.query(EquipmentItem).filter(EquipmentItem.id == loan.item_id).first()
+    fac = db.query(Facility).filter(Facility.id == item.facility_id).first()
+    verify_district_scope(fac.district_id, current_user)
+
+    if loan.returned_at is not None:
+        raise HTTPException(status_code=400, detail="Item has already been returned")
+
+    loan.returned_at = datetime.datetime.utcnow()
+    loan.condition_in = req.condition_in
+    item.condition = req.condition_in
+    item.status = "AVAILABLE" if req.condition_in in ("EXCELLENT", "GOOD") else "UNDER_MAINTENANCE"
+    db.commit()
+
+    record_audit_event(
+        db, current_user, "RETURN_EQUIPMENT", "EquipmentLoan", loan.id,
+        {"condition_in": req.condition_in, "status": item.status}
+    )
+
+    return EquipmentLoanResponse(
+        id=loan.id,
+        item_id=loan.item_id,
+        item_name=item.item_name,
+        borrower_type=loan.borrower_type,
+        borrower_id=loan.borrower_id,
+        issued_at=loan.issued_at.isoformat(),
+        due_at=loan.due_at.isoformat(),
+        returned_at=loan.returned_at.isoformat(),
+        condition_out=loan.condition_out,
+        condition_in=loan.condition_in,
+        is_overdue=False
+    )
+
+# Equipment loan log rejection on PUT/DELETE (Append-only)
+@api_router.put("/equipment/loans/{loan_id}")
+def update_equipment_loan_rejected():
+    raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Equipment loan log is strictly append-only")
+
+@api_router.delete("/equipment/loans/{loan_id}")
+def delete_equipment_loan_rejected():
+    raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Equipment loan log is strictly append-only")
+
+# --- PHASE 2: FACILITY UTILISATION ---
+
+@api_router.post("/facilities/{facility_id}/utilisation", response_model=UtilisationResponse, status_code=status.HTTP_201_CREATED)
+def log_facility_utilisation(
+    facility_id: str,
+    req: UtilisationLogRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    fac = db.query(Facility).filter(Facility.id == facility_id).first()
+    if not fac:
+        raise HTTPException(status_code=404, detail="Facility not found")
+
+    verify_district_scope(fac.district_id, current_user)
+
+    try:
+        period_date = datetime.date.fromisoformat(req.period)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format for period, expected YYYY-MM-DD")
+
+    util = FacilityUtilisation(
+        facility_id=fac.id,
+        period=period_date,
+        sessions=req.sessions,
+        athlete_count=req.athlete_count,
+        hours_used=req.hours_used
+    )
+    db.add(util)
+    db.commit()
+    db.refresh(util)
+
+    rate_pct = round((req.hours_used / fac.open_hours_monthly * 100), 1)
+    is_under = rate_pct < 50.0
+
+    return UtilisationResponse(
+        id=util.id,
+        facility_id=util.facility_id,
+        period=util.period.isoformat(),
+        sessions=util.sessions,
+        athlete_count=util.athlete_count,
+        hours_used=util.hours_used,
+        capacity_hours=fac.open_hours_monthly,
+        utilisation_rate_pct=rate_pct,
+        is_underutilised=is_under,
+        advisory_reason=f"Utilisation is {rate_pct}%, which is below the 50% capacity benchmark." if is_under else None
+    )
+
 @api_router.get("/facilities", response_model=List[FacilityResponse])
 def list_facilities(
     lat: Optional[float] = None,
@@ -413,7 +735,6 @@ def list_facilities(
 
     for f in facilities:
         if lat is not None and lon is not None:
-            # Haversine distance
             dlat = math.radians(f.latitude - lat)
             dlon = math.radians(f.longitude - lon)
             a = math.sin(dlat/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(f.latitude)) * math.sin(dlon/2)**2
@@ -429,11 +750,11 @@ def list_facilities(
             district_id=f.district_id,
             latitude=f.latitude,
             longitude=f.longitude,
-            sports=json.loads(f.sports_json) if f.sports_json else []
+            sports=json.loads(f.sports_json) if f.sports_json else [],
+            open_hours_monthly=f.open_hours_monthly
         ))
     return out
 
-# Pipeline Diagnosis Snapshots
 @api_router.get("/pipeline/snapshots", response_model=List[PipelineMetric])
 def get_pipeline_snapshots(
     district_id: Optional[str] = None,
@@ -474,7 +795,6 @@ def get_pipeline_snapshots(
         ))
     return metrics
 
-# Audit Trail
 @api_router.get("/audit/logs", response_model=List[AuditLogEntry])
 def list_audit_trail(
     limit: int = 50,
