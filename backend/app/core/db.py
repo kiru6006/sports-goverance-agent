@@ -150,3 +150,34 @@ def init_db():
         db.commit()
 
     db.close()
+
+    # Invoke all Phase seeders for full dataset coverage
+    try:
+        from app.core.seed_phase1 import seed_registry_data
+        seed_registry_data()
+    except Exception:
+        pass
+
+    try:
+        from app.core.seed_phase2 import seed_phase2_data
+        seed_phase2_data()
+    except Exception:
+        pass
+
+    try:
+        from app.core.seed_phase3 import seed_phase3_data
+        seed_phase3_data()
+    except Exception:
+        pass
+
+    try:
+        from app.core.seed_phase4 import seed_policy_chunks
+        seed_policy_chunks()
+    except Exception:
+        pass
+
+    try:
+        from app.core.seed_phase5 import seed_state_manifests
+        seed_state_manifests()
+    except Exception:
+        pass
