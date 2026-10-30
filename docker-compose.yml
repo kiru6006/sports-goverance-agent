@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./tracknet.db
+      - SECRET_KEY=tracknet-sovereign-dev-secret-key-32charsmin!
+      - ENCRYPTION_KEY=kZ45G62zZ0K1l8Q47N7yX9wP2vM5aB8cE1fH3jK5mO8=
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
