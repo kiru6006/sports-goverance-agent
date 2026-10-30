@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { initialMockData } from './data/mockData';
 import { 
   ShieldCheck, 
   Activity, 
@@ -274,33 +275,33 @@ export default function App() {
     full_name: 'Pune District Sports Officer'
   });
   
-  const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [heatmapCells, setHeatmapCells] = useState<HeatmapCell[]>([]);
-  const [funnel, setFunnel] = useState<FunnelData | null>(null);
-  const [equipmentItems, setEquipmentItems] = useState<EquipmentItem[]>([]);
-  const [overdueLoans, setOverdueLoans] = useState<EquipmentLoan[]>([]);
-  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [athletes, setAthletes] = useState<Athlete[]>((initialMockData as any).athletes || []);
+  const [heatmapCells, setHeatmapCells] = useState<HeatmapCell[]>((initialMockData as any).heatmap || []);
+  const [funnel, setFunnel] = useState<FunnelData | null>((initialMockData as any).funnel || null);
+  const [equipmentItems, setEquipmentItems] = useState<EquipmentItem[]>((initialMockData as any).equipment || []);
+  const [overdueLoans, setOverdueLoans] = useState<EquipmentLoan[]>((initialMockData as any).overdue || []);
+  const [facilities, setFacilities] = useState<Facility[]>((initialMockData as any).facilities || []);
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
 
   // Phase 3 States
-  const [schemes, setSchemes] = useState<SchemeItem[]>([]);
-  const [opportunities, setOpportunities] = useState<OpportunityItem[]>([]);
-  const [trainerCerts, setTrainerCerts] = useState<TrainerCertItem[]>([]);
+  const [schemes, setSchemes] = useState<SchemeItem[]>((initialMockData as any).schemes || []);
+  const [opportunities, setOpportunities] = useState<OpportunityItem[]>((initialMockData as any).opportunities || []);
+  const [trainerCerts, setTrainerCerts] = useState<TrainerCertItem[]>((initialMockData as any).trainerCerts || []);
   const [eligibilityResults, setEligibilityResults] = useState<EligibilityEvaluation[]>([]);
   const [evaluatingAthleteId, setEvaluatingAthleteId] = useState<string | null>(null);
 
   // Phase 4 States
   const [agentPrompt, setAgentPrompt] = useState('');
   const [agentResponse, setAgentResponse] = useState<any | null>(null);
-  const [agentProposals, setAgentProposals] = useState<any[]>([]);
+  const [agentProposals, setAgentProposals] = useState<any[]>((initialMockData as any).agentProposals || []);
   const [isAgentLoading, setIsAgentLoading] = useState(false);
 
   // Phase 5 States: State Adapters & Offline PWA
-  const [selectedStateManifest, setSelectedStateManifest] = useState<StateAdapter | null>(null);
+  const [selectedStateManifest, setSelectedStateManifest] = useState<StateAdapter | null>((initialMockData as any).stateManifestMH || null);
   const [selectedStateId, setSelectedStateId] = useState<string>('MH');
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
-  const [syncHistory, setSyncHistory] = useState<any[]>([]);
+  const [syncHistory, setSyncHistory] = useState<any[]>((initialMockData as any).syncRecords || []);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncOutcome, setSyncOutcome] = useState<{ applied: number; server_won: number; errors: number } | null>(null);
 
@@ -312,7 +313,7 @@ export default function App() {
   const [erasureFeedback, setErasureFeedback] = useState<string | null>(null);
 
   // Direct Messaging & Mapping States
-  const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [messages, setMessages] = useState<DirectMessage[]>((initialMockData as any).messages || []);
   const [activeChatRecipient, setActiveChatRecipient] = useState<{ id: string; name: string; role: string; athlete_id?: string } | null>(null);
   const [chatInputText, setChatInputText] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState<Athlete | null>(null);
@@ -402,7 +403,23 @@ export default function App() {
       });
       if (resMsg.ok) setMessages(await resMsg.json());
     } catch {
-      // Local fallback
+      // Local fallback for static hosting / GitHub Pages
+      if (initialMockData) {
+        const d = initialMockData as any;
+        if (d.athletes) setAthletes(d.athletes);
+        if (d.heatmap) setHeatmapCells(d.heatmap);
+        if (d.funnel) setFunnel(d.funnel);
+        if (d.equipment) setEquipmentItems(d.equipment);
+        if (d.overdue) setOverdueLoans(d.overdue);
+        if (d.facilities) setFacilities(d.facilities);
+        if (d.schemes) setSchemes(d.schemes);
+        if (d.opportunities) setOpportunities(d.opportunities);
+        if (d.trainerCerts) setTrainerCerts(d.trainerCerts);
+        if (d.agentProposals) setAgentProposals(d.agentProposals);
+        if (d.stateManifestMH) setSelectedStateManifest(d.stateManifestMH);
+        if (d.syncRecords) setSyncHistory(d.syncRecords);
+        if (d.messages) setMessages(d.messages);
+      }
     }
   };
 
