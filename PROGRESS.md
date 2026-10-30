@@ -10,7 +10,7 @@
 | **Phase 3** | Support Linkage, Schemes & Maker-Checker | ✅ PASSED | Pytest suite: 28/28 tests passed (Deterministic rules, Maker-checker 403, Immutability 409, Revocation 409, Zero-PII Outbox) |
 | **Phase 4** | Grounded Agent Layer & Action Proposals | ✅ PASSED | Pytest suite: 33/33 tests passed (Policy RAG 100% citation, Read-only tool calling, Non-autonomous action proposal tokens, Replay protection 409) |
 | **Phase 5** | State Adapters & Offline PWA Capabilities | ✅ PASSED | Pytest suite: 37/37 tests passed (State adapter manifests, deterministic conflict resolution matrix, offline batch sync protocol) |
-| **Phase 6** | Pilot Hardening, Security ASVS & Chaos Drill | 🔄 IN PROGRESS | ASVS L2 security hardening, cryptographic audit chain verification & disaster drill |
+| **Phase 6** | Pilot Hardening, Security ASVS & Chaos Drill | ✅ PASSED | Pytest suite: 41/41 tests passed (SHA-256 tamper-evident audit hash chain, emergency kill-switch, DPDP Act data erasure, automated chaos drill) |
 
 ---
 

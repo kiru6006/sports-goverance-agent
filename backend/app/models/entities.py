@@ -361,3 +361,4 @@ class AuditLog(Base):
     target_id = Column(String, nullable=False)
     payload_hash = Column(String, nullable=False)
     prev_hash = Column(String, nullable=True)
+    record_hash = Column(String, nullable=True)

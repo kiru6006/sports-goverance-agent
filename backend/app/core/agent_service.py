@@ -122,6 +122,11 @@ def process_agent_query(
     sport_filter: Optional[str] = None
 ) -> Dict[str, Any]:
     """Agent query coordinator: Grounded Policy RAG + Scoped Tool Calling + Proposal Generation."""
+    from app.core.security_resilience import SecurityResilienceService
+    if not SecurityResilienceService.is_agent_active_for(current_user.state_id):
+        status = SecurityResilienceService.get_killswitch_status()
+        raise PermissionError(f"AI Agent service is disabled by security kill-switch: {status.get('reason')}")
+
     # 1. Search Policy Guidelines
     policy_citations = search_policy_guidelines(prompt, db)
     

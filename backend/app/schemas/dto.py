@@ -293,6 +293,7 @@ class AuditLogEntry(BaseModel):
     target_id: str
     payload_hash: str
     prev_hash: Optional[str]
+    record_hash: Optional[str] = None
 
 # --- PHASE 4 DTOs ---
 
@@ -377,3 +378,41 @@ class SyncBatchResponse(BaseModel):
     applied_count: int
     conflict_count: int
     results: List[SyncResultItem]
+
+# --- PHASE 6 DTOs ---
+
+class AuditChainVerificationResult(BaseModel):
+    is_valid: bool
+    total_records: int
+    verified_records: int
+    broken_at_index: Optional[int] = None
+    broken_record_id: Optional[str] = None
+    genesis_hash: str
+    tip_hash: str
+    verified_at: str
+
+class AgentKillSwitchStatus(BaseModel):
+    is_globally_disabled: bool
+    disabled_state_ids: List[str]
+    reason: Optional[str] = None
+    updated_by: str
+    updated_at: str
+
+class AgentKillSwitchRequest(BaseModel):
+    disabled: bool
+    state_id: Optional[str] = None
+    reason: Optional[str] = "Manual security officer intervention"
+
+class DPDPErasureResponse(BaseModel):
+    athlete_id: str
+    status: str
+    redacted_fields: List[str]
+    audit_hash: str
+    message: str
+
+class ChaosDrillResult(BaseModel):
+    drill_id: str
+    status: str
+    passed: bool
+    checks: List[Dict[str, Any]]
+    executed_at: str

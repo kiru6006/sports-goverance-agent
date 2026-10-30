@@ -22,6 +22,27 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     
+    # Check and add record_hash column to audit_logs if missing in SQLite
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE audit_logs ADD COLUMN record_hash VARCHAR;"))
+            conn.commit()
+    except Exception:
+        pass
+
+    # Ensure all audit logs have an unbroken cryptographic chain
+    logs = db.query(AuditLog).order_by(AuditLog.timestamp.asc()).all()
+    if logs:
+        import hashlib
+        current_prev = "GENESIS_HASH_0000000000000000"
+        for entry in logs:
+            entry.prev_hash = current_prev
+            record_content = f"{current_prev}:{entry.actor_id}:{entry.action}:{entry.target_entity}:{entry.target_id}:{entry.payload_hash}"
+            entry.record_hash = hashlib.sha256(record_content.encode()).hexdigest()
+            current_prev = entry.record_hash
+        db.commit()
+    
     # Check if seed users exist
     if db.query(User).count() == 0:
         seed_users = [

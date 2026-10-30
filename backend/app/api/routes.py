@@ -29,10 +29,13 @@ from app.schemas.dto import (
     TrainerCertificationResponse, CreatePlacementRequest, PlacementResponse,
     PipelineMetric, AuditLogEntry, UserResponse,
     AgentChatRequest, AgentChatResponse, CreateProposalRequest, ActionProposalResponse, ExecuteProposalRequest, PolicyCitation,
-    StateManifestResponse, SyncBatchRequest, SyncBatchResponse, SyncResultItem
+    StateManifestResponse, SyncBatchRequest, SyncBatchResponse, SyncResultItem,
+    AuditChainVerificationResult, AgentKillSwitchStatus, AgentKillSwitchRequest,
+    DPDPErasureResponse, ChaosDrillResult
 )
 from app.core.agent_service import process_agent_query, search_policy_guidelines
 from app.core.sync_protocol import process_batch_sync
+from app.core.security_resilience import SecurityResilienceService
 
 api_router = APIRouter()
 
@@ -1210,13 +1213,17 @@ def agent_chat_interaction(
     db: Session = Depends(get_db)
 ):
     """Processes user query with grounded policy retrieval, read-only tool calling, and action proposals."""
-    res = process_agent_query(
-        prompt=req.prompt,
-        current_user=current_user,
-        db=db,
-        district_filter=req.district_filter,
-        sport_filter=req.sport_filter
-    )
+    try:
+        res = process_agent_query(
+            prompt=req.prompt,
+            current_user=current_user,
+            db=db,
+            district_filter=req.district_filter,
+            sport_filter=req.sport_filter
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     return AgentChatResponse(
         response_text=res["response_text"],
         tool_calls_executed=res["tool_calls_executed"],
@@ -1372,4 +1379,99 @@ def list_sync_records(
         "conflict_notes": r.conflict_notes,
         "server_timestamp": r.server_timestamp.isoformat()
     } for r in records]
+
+# --- PHASE 6: SECURITY, ASVS L2 & RESILIENCE ENDPOINTS ---
+
+@api_router.get("/security/audit-chain/verify", response_model=AuditChainVerificationResult)
+def verify_audit_log_hash_chain(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Cryptographically verifies the immutable SHA-256 hash chain of all system audit logs."""
+    res = SecurityResilienceService.verify_audit_hash_chain(db)
+    return AuditChainVerificationResult(**res)
+
+@api_router.get("/security/killswitch", response_model=AgentKillSwitchStatus)
+def get_killswitch_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Returns current security kill-switch state for AI Agent operations."""
+    return SecurityResilienceService.get_killswitch_status()
+
+@api_router.post("/security/killswitch", response_model=AgentKillSwitchStatus)
+def update_killswitch(
+    req: AgentKillSwitchRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Emergency kill-switch toggling: blocks agent queries globally or per-state.
+    Only NATIONAL_ADMIN or STATE_OFFICER can activate.
+    """
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER"):
+        raise HTTPException(status_code=403, detail="Security officer privilege required to toggle agent kill-switch.")
+
+    updated = SecurityResilienceService.set_killswitch(
+        disabled=req.disabled,
+        state_id=req.state_id,
+        reason=req.reason or "Security officer intervention",
+        actor_id=current_user.username
+    )
+
+    record_audit_event(
+        db, current_user, "AGENT_KILLSWITCH_TOGGLE", "AgentSecurity",
+        req.state_id or "GLOBAL",
+        {"disabled": req.disabled, "reason": req.reason}
+    )
+
+    return AgentKillSwitchStatus(**updated)
+
+@api_router.post("/security/dpdp/erasure/{athlete_id}", response_model=DPDPErasureResponse)
+def execute_dpdp_erasure(
+    athlete_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Statutory DPDP Act 2023 Right-to-be-Forgotten / Data Erasure.
+    Redacts encrypted PII, revokes consent, updates status to DELETED, and logs immutable audit entry.
+    """
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER", "DISTRICT_OFFICER"):
+        raise HTTPException(status_code=403, detail="Statutory officer authorization required for data erasure.")
+
+    res = SecurityResilienceService.execute_dpdp_erasure(db, athlete_id, current_user)
+    if res["status"] == "NOT_FOUND":
+        raise HTTPException(status_code=404, detail="Athlete record not found")
+
+    record_audit_event(
+        db, current_user, "DPDP_DATA_ERASURE", "Athlete", athlete_id,
+        {"redacted_fields": res["redacted_fields"]}
+    )
+
+    last_log = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).first()
+    audit_hash = last_log.record_hash or last_log.payload_hash if last_log else "GENESIS"
+
+    return DPDPErasureResponse(
+        athlete_id=athlete_id,
+        status="ERASED",
+        redacted_fields=res["redacted_fields"],
+        audit_hash=audit_hash,
+        message=res["message"]
+    )
+
+@api_router.post("/security/chaos-drill", response_model=ChaosDrillResult)
+def execute_chaos_resilience_drill(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Executes automated non-destructive disaster recovery and resilience checks."""
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER"):
+        raise HTTPException(status_code=403, detail="High-privilege administrator required for chaos drill.")
+
+    drill_res = SecurityResilienceService.run_chaos_resilience_drill(db)
+    record_audit_event(
+        db, current_user, "CHAOS_DRILL_EXECUTION", "SystemResilience",
+        drill_res["drill_id"],
+        {"passed": drill_res["passed"], "status": drill_res["status"]}
+    )
+    return ChaosDrillResult(**drill_res)
+
 

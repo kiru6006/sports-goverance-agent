@@ -48,7 +48,10 @@ def record_audit_event(
     payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
     
     last_log = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).first()
-    prev_hash = last_log.payload_hash if last_log else "GENESIS_HASH_0000000000000000"
+    prev_hash = (last_log.record_hash or last_log.payload_hash) if last_log else "GENESIS_HASH_0000000000000000"
+
+    record_content = f"{prev_hash}:{actor.username}:{action}:{target_entity}:{target_id}:{payload_hash}"
+    record_hash = hashlib.sha256(record_content.encode()).hexdigest()
 
     audit_entry = AuditLog(
         actor_id=actor.username,
@@ -58,7 +61,8 @@ def record_audit_event(
         target_entity=target_entity,
         target_id=target_id,
         payload_hash=payload_hash,
-        prev_hash=prev_hash
+        prev_hash=prev_hash,
+        record_hash=record_hash
     )
     db.add(audit_entry)
     db.commit()

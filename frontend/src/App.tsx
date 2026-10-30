@@ -21,7 +21,10 @@ import {
   RefreshCw,
   Globe,
   Wifi,
-  WifiOff
+  WifiOff,
+  ShieldAlert,
+  Terminal,
+  Trash2
 } from 'lucide-react';
 
 interface UserContext {
@@ -212,7 +215,7 @@ interface OfflineQueueItem {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent' | 'adapters'>('diagnosis');
+  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent' | 'adapters' | 'security'>('diagnosis');
   const [currentLang, setCurrentLang] = useState<'en' | 'hi' | 'mr'>('en');
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
@@ -251,6 +254,13 @@ export default function App() {
   const [syncHistory, setSyncHistory] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncOutcome, setSyncOutcome] = useState<{ applied: number; server_won: number; errors: number } | null>(null);
+
+  // Phase 6 States: Security, ASVS L2 & Resilience
+  const [auditChainStatus, setAuditChainStatus] = useState<any | null>(null);
+  const [killSwitchStatus, setKillSwitchStatus] = useState<any | null>(null);
+  const [chaosDrillOutput, setChaosDrillOutput] = useState<any | null>(null);
+  const [isDrillRunning, setIsDrillRunning] = useState<boolean>(false);
+  const [erasureFeedback, setErasureFeedback] = useState<string | null>(null);
 
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -392,6 +402,94 @@ export default function App() {
       alert("Network failure during sync.");
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleVerifyAuditChain = async () => {
+    try {
+      const res = await fetch('/api/v1/security/audit-chain/verify', {
+        headers: { 'x-user-id': currentUser.username }
+      });
+      if (res.ok) {
+        setAuditChainStatus(await res.json());
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleFetchKillSwitch = async () => {
+    try {
+      const res = await fetch('/api/v1/security/killswitch', {
+        headers: { 'x-user-id': currentUser.username }
+      });
+      if (res.ok) {
+        setKillSwitchStatus(await res.json());
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleKillSwitch = async (disabled: boolean) => {
+    try {
+      const res = await fetch('/api/v1/security/killswitch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          disabled,
+          reason: disabled ? "Officer manually activated emergency kill-switch" : "Officer restored operations"
+        })
+      });
+      if (res.ok) {
+        setKillSwitchStatus(await res.json());
+      } else {
+        const err = await res.json();
+        alert(`Kill-switch toggle error: ${err.detail}`);
+      }
+    } catch {
+      alert("Network error updating killswitch");
+    }
+  };
+
+  const handleRunChaosDrill = async () => {
+    setIsDrillRunning(true);
+    setChaosDrillOutput(null);
+    try {
+      const res = await fetch('/api/v1/security/chaos-drill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username }
+      });
+      if (res.ok) {
+        setChaosDrillOutput(await res.json());
+      } else {
+        const err = await res.json();
+        alert(`Chaos drill failed: ${err.detail}`);
+      }
+    } catch {
+      alert("Network error triggering chaos drill");
+    } finally {
+      setIsDrillRunning(false);
+    }
+  };
+
+  const handleExecuteDPDPErasure = async (athId: string) => {
+    if (!confirm(`Confirm statutory DPDP Act data erasure for athlete ${athId}? This will permanently redact all PII and revoke consent.`)) return;
+    try {
+      const res = await fetch(`/api/v1/security/dpdp/erasure/${athId}`, {
+        method: 'POST',
+        headers: { 'x-user-id': currentUser.username }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setErasureFeedback(`Athlete ${athId} successfully erased. Cryptographic proof: ${data.audit_hash}`);
+        fetchData(currentUser);
+      } else {
+        const err = await res.json();
+        alert(`Erasure error: ${err.detail}`);
+      }
+    } catch {
+      alert("Erasure request failed");
     }
   };
 
@@ -723,6 +821,18 @@ export default function App() {
                 {offlineQueue.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('security');
+              handleVerifyAuditChain();
+              handleFetchKillSwitch();
+            }}
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'security' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4 text-emerald-400" /> Security & ASVS Resilience
           </button>
         </div>
       </header>
@@ -1847,6 +1957,249 @@ export default function App() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 6: Pilot Hardening, Security ASVS & Resilience */}
+        {activeTab === 'security' && (
+          <div className="space-y-6">
+            {/* Security Top Banner */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  Pilot Hardening, ASVS L2 & Resilience Center
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Continuous cryptographic hash verification, AI emergency kill-switch, DPDP Act erasure, and automated disaster drills.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleVerifyAuditChain}
+                  className="bg-navy-900 hover:bg-navy-800 text-amber-300 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                  Verify Hash Chain
+                </button>
+                <button
+                  onClick={handleRunChaosDrill}
+                  disabled={isDrillRunning}
+                  className="bg-purple-700 hover:bg-purple-800 text-white px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                >
+                  <Terminal className={`w-3.5 h-3.5 ${isDrillRunning ? 'animate-spin' : ''}`} />
+                  {isDrillRunning ? 'Executing Drill...' : 'Run Chaos Drill'}
+                </button>
+              </div>
+            </div>
+
+            {erasureFeedback && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex justify-between items-center">
+                <span><b>Statutory Erasure Complete:</b> {erasureFeedback}</span>
+                <button onClick={() => setErasureFeedback(null)} className="text-emerald-700 hover:text-emerald-950">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Grid 1: Cryptographic Audit Hash Chain + Emergency Kill-Switch */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Audit Hash Chain Card */}
+              <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                      <Lock className="w-4 h-4 text-emerald-600" />
+                      Tamper-Evident SHA-256 Audit Chain
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Zero-tampering cryptographic link between sequential system mutations.
+                    </p>
+                  </div>
+                  {auditChainStatus && (
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      auditChainStatus.is_valid ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {auditChainStatus.is_valid ? 'INTEACT & VERIFIED' : 'TAMPER DETECTED'}
+                    </span>
+                  )}
+                </div>
+
+                {auditChainStatus ? (
+                  <div className="space-y-3 text-xs">
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div>
+                        <div className="text-[10px] text-slate-400">Total Audit Blocks</div>
+                        <div className="text-base font-bold text-slate-800">{auditChainStatus.total_records}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400">Cryptographically Valid</div>
+                        <div className="text-base font-bold text-emerald-600">{auditChainStatus.verified_records}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold text-slate-600">Genesis Block Hash:</div>
+                      <div className="font-mono text-[10px] bg-slate-100 p-2 rounded truncate text-slate-700">
+                        {auditChainStatus.genesis_hash}
+                      </div>
+                      <div className="text-[11px] font-semibold text-slate-600">Chain Tip Hash:</div>
+                      <div className="font-mono text-[10px] bg-slate-100 p-2 rounded truncate text-slate-700">
+                        {auditChainStatus.tip_hash}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-slate-400 text-xs">
+                    Click "Verify Hash Chain" to execute complete SHA-256 proof.
+                  </div>
+                )}
+              </div>
+
+              {/* Emergency Agent Kill-Switch */}
+              <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-red-600" />
+                      AI Agent Emergency Kill-Switch
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Instantly cut off all generative RAG queries and mutation proposals.
+                    </p>
+                  </div>
+                  {killSwitchStatus && (
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      killSwitchStatus.is_globally_disabled ? 'bg-red-100 text-red-800 animate-pulse' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {killSwitchStatus.is_globally_disabled ? 'AGENT DISABLED' : 'OPERATIONAL'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                    <div className="text-[11px] text-slate-500 font-medium">Kill-Switch Reason / State:</div>
+                    <div className="text-slate-800 font-semibold">{killSwitchStatus?.reason || 'Normal operational state'}</div>
+                    <div className="text-[10px] text-slate-400">
+                      Updated By: {killSwitchStatus?.updated_by || 'system'} · {killSwitchStatus ? new Date(killSwitchStatus.updated_at).toLocaleTimeString() : ''}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    {killSwitchStatus?.is_globally_disabled ? (
+                      <button
+                        onClick={() => handleToggleKillSwitch(false)}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs shadow-sm transition-all"
+                      >
+                        Restore Agent Operations
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleKillSwitch(true)}
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-xs shadow-sm transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <ShieldAlert className="w-4 h-4" />
+                        Activate Emergency Kill-Switch
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Chaos Resilience Drill Report */}
+            {chaosDrillOutput && (
+              <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                      <Terminal className="w-4 h-4 text-purple-600" />
+                      Automated Chaos Drill Output ({chaosDrillOutput.drill_id})
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Self-healing, database connectivity, and AES encryption loop testing.
+                    </p>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+                    chaosDrillOutput.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {chaosDrillOutput.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  {chaosDrillOutput.checks.map((c: any, idx: number) => (
+                    <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                      <div className="font-bold text-slate-800 flex justify-between">
+                        <span>{c.check}</span>
+                        <span className="text-[10px] text-emerald-600 font-bold">{c.status}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600">{c.details}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* DPDP Act Right-to-be-Forgotten / Data Erasure Table */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-red-600" />
+                    DPDP Act 2023 Statutory Data Erasure (Right-to-be-Forgotten)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Statutory erasure workflow for withdrawn consent: permanently redacts PII and updates status to DELETED.
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b bg-slate-50 text-slate-600 font-semibold">
+                      <th className="py-2 px-3">Athlete</th>
+                      <th className="py-2 px-3">KID</th>
+                      <th className="py-2 px-3">Status</th>
+                      <th className="py-2 px-3">Consent</th>
+                      <th className="py-2 px-3 text-right">Statutory Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {athletes.map(ath => (
+                      <tr key={ath.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 font-semibold text-slate-900">{ath.name}</td>
+                        <td className="py-2 px-3 font-mono text-[11px] text-slate-500">{ath.kid}</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            ath.verification_status === 'DELETED' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {ath.verification_status}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 text-[11px]">{ath.consent_status}</td>
+                        <td className="py-2 px-3 text-right">
+                          {ath.verification_status !== 'DELETED' ? (
+                            <button
+                              onClick={() => handleExecuteDPDPErasure(ath.id)}
+                              className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-2.5 py-1 rounded text-[11px] font-bold flex items-center gap-1 ml-auto shadow-2xs"
+                            >
+                              <Trash2 className="w-3 h-3 text-red-600" />
+                              Execute Erasure
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">PII Redacted</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
