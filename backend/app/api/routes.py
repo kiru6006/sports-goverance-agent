@@ -15,7 +15,8 @@ from app.models.entities import (
     User, Athlete, Sport, Facility, Achievement, JourneyEvent, PipelineSnapshot, AuditLog,
     Population, SupportRecord, EquipmentItem, EquipmentLoan, FacilityUtilisation,
     Scheme, SchemeRule, EligibilityResult, Opportunity, OpportunityApplication,
-    TrainerCertification, Placement, OutboxMessage, Trainer, Institution
+    TrainerCertification, Placement, OutboxMessage, Trainer, Institution,
+    PolicyChunk, ActionProposal
 )
 from app.schemas.dto import (
     AthleteSummary, AthleteDetail, AchievementResponse, JourneyEventResponse,
@@ -26,8 +27,10 @@ from app.schemas.dto import (
     SchemeResponse, SchemeRuleResponse, CreateSchemeRuleRequest, ApproveSchemeRuleRequest,
     EvaluateEligibilityResponse, OpportunityResponse, ApplyOpportunityRequest, OpportunityApplicationResponse,
     TrainerCertificationResponse, CreatePlacementRequest, PlacementResponse,
-    PipelineMetric, AuditLogEntry, UserResponse
+    PipelineMetric, AuditLogEntry, UserResponse,
+    AgentChatRequest, AgentChatResponse, CreateProposalRequest, ActionProposalResponse, ExecuteProposalRequest, PolicyCitation
 )
+from app.core.agent_service import process_agent_query, search_policy_guidelines
 
 api_router = APIRouter()
 
@@ -1194,5 +1197,112 @@ def create_placement(
         role=placement.role,
         start_date=placement.start_date.isoformat(),
         end_date=placement.end_date.isoformat() if placement.end_date else None
+    )
+
+# --- PHASE 4: GROUNDED AGENT & ACTION PROPOSALS ---
+
+@api_router.post("/agent/chat", response_model=AgentChatResponse)
+def agent_chat_interaction(
+    req: AgentChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Processes user query with grounded policy retrieval, read-only tool calling, and action proposals."""
+    res = process_agent_query(
+        prompt=req.prompt,
+        current_user=current_user,
+        db=db,
+        district_filter=req.district_filter,
+        sport_filter=req.sport_filter
+    )
+    return AgentChatResponse(
+        response_text=res["response_text"],
+        tool_calls_executed=res["tool_calls_executed"],
+        citations=[PolicyCitation(**c) for c in res["citations"]],
+        proposed_actions=res["proposed_actions"],
+        confidence_level=res["confidence_level"],
+        audit_hash=res["audit_hash"]
+    )
+
+@api_router.get("/agent/policies", response_model=List[PolicyCitation])
+def search_policies(
+    q: str = Query(..., description="Query terms for policy lookup"),
+    db: Session = Depends(get_db)
+):
+    """Grounded search over approved government circulars and scheme guidelines with 100% citation enforcement."""
+    results = search_policy_guidelines(q, db)
+    return [PolicyCitation(**r) for r in results]
+
+@api_router.get("/agent/proposals", response_model=List[ActionProposalResponse])
+def list_action_proposals(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists pending action proposals awaiting human officer sanction."""
+    proposals = db.query(ActionProposal).order_by(ActionProposal.created_at.desc()).all()
+    out = []
+    for p in proposals:
+        out.append(ActionProposalResponse(
+            id=p.id,
+            action_type=p.action_type,
+            target_entity=p.target_entity,
+            target_id=p.target_id,
+            proposed_payload=json.loads(p.proposed_payload_json),
+            reasoning=p.reasoning,
+            citations=json.loads(p.citations_json) if isinstance(json.loads(p.citations_json), list) and len(json.loads(p.citations_json)) > 0 and isinstance(json.loads(p.citations_json)[0], dict) else [{"doc": c} for c in json.loads(p.citations_json)],
+            status=p.status,
+            approval_token=p.approval_token,
+            created_by_agent=p.created_by_agent,
+            created_at=p.created_at.isoformat(),
+            executed_at=p.executed_at.isoformat() if p.executed_at else None
+        ))
+    return out
+
+@api_router.post("/agent/proposals/{proposal_id}/execute", response_model=ActionProposalResponse)
+def execute_action_proposal(
+    proposal_id: str,
+    req: ExecuteProposalRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Executes a previously generated ActionProposal. Requires explicit human officer invocation & valid token."""
+    prop = db.query(ActionProposal).filter(ActionProposal.id == proposal_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Action proposal not found")
+
+    if prop.status == "EXECUTED":
+        raise HTTPException(status_code=409, detail="Action proposal has already been executed (replay protection)")
+
+    if prop.approval_token != req.approval_token:
+        raise HTTPException(status_code=403, detail="Invalid approval token for proposal execution")
+
+    # Invariant: Human officer sanction
+    if current_user.role not in ("NATIONAL_ADMIN", "STATE_OFFICER", "DISTRICT_OFFICER"):
+        raise HTTPException(status_code=403, detail="Role unauthorized to execute action proposals")
+
+    # Execute action mutation
+    prop.status = "EXECUTED"
+    prop.approved_by = current_user.id
+    prop.executed_at = datetime.datetime.utcnow()
+    db.commit()
+
+    record_audit_event(
+        db, current_user, "EXECUTE_ACTION_PROPOSAL", "ActionProposal", prop.id,
+        {"action_type": prop.action_type, "target_entity": prop.target_entity, "notes": req.approval_notes}
+    )
+
+    return ActionProposalResponse(
+        id=prop.id,
+        action_type=prop.action_type,
+        target_entity=prop.target_entity,
+        target_id=prop.target_id,
+        proposed_payload=json.loads(prop.proposed_payload_json),
+        reasoning=prop.reasoning,
+        citations=json.loads(prop.citations_json) if isinstance(json.loads(prop.citations_json), list) and len(json.loads(prop.citations_json)) > 0 and isinstance(json.loads(prop.citations_json)[0], dict) else [{"doc": c} for c in json.loads(prop.citations_json)],
+        status=prop.status,
+        approval_token=prop.approval_token,
+        created_by_agent=prop.created_by_agent,
+        created_at=prop.created_at.isoformat(),
+        executed_at=prop.executed_at.isoformat()
     )
 

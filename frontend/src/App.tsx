@@ -15,7 +15,9 @@ import {
   Package,
   X,
   BookOpen,
-  Briefcase
+  Briefcase,
+  Bot,
+  Sparkles
 } from 'lucide-react';
 
 interface UserContext {
@@ -185,7 +187,7 @@ interface Facility {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes'>('diagnosis');
+  const [activeTab, setActiveTab] = useState<'diagnosis' | 'registry' | 'verification' | 'equipment' | 'facilities' | 'schemes' | 'agent'>('diagnosis');
   const [currentUser, setCurrentUser] = useState<UserContext>({
     username: 'pune_dso',
     role: 'DISTRICT_OFFICER',
@@ -208,6 +210,12 @@ export default function App() {
   const [trainerCerts, setTrainerCerts] = useState<TrainerCertItem[]>([]);
   const [eligibilityResults, setEligibilityResults] = useState<EligibilityEvaluation[]>([]);
   const [evaluatingAthleteId, setEvaluatingAthleteId] = useState<string | null>(null);
+
+  // Phase 4 States
+  const [agentPrompt, setAgentPrompt] = useState('');
+  const [agentResponse, setAgentResponse] = useState<any | null>(null);
+  const [agentProposals, setAgentProposals] = useState<any[]>([]);
+  const [isAgentLoading, setIsAgentLoading] = useState(false);
 
   // Onboarding Modal
   const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -259,10 +267,65 @@ export default function App() {
         headers: { 'x-user-id': user.username }
       });
       if (resCert.ok) setTrainerCerts(await resCert.json());
+
+      // Fetch Action Proposals
+      const resProp = await fetch('/api/v1/agent/proposals', {
+        headers: { 'x-user-id': user.username }
+      });
+      if (resProp.ok) setAgentProposals(await resProp.json());
     } catch {
       // Local fallback
     }
   };
+
+  const handleAgentQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agentPrompt.trim()) return;
+    setIsAgentLoading(true);
+    setAgentResponse(null);
+    try {
+      const res = await fetch('/api/v1/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({ prompt: agentPrompt })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAgentResponse(data);
+        fetchData(currentUser);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsAgentLoading(false);
+    }
+  };
+
+  const handleExecuteProposal = async (proposalId: string, token: string) => {
+    try {
+      const res = await fetch(`/api/v1/agent/proposals/${proposalId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.username },
+        body: JSON.stringify({
+          approval_token: token,
+          approval_notes: `Sanctioned by ${currentUser.full_name} (${currentUser.role})`
+        })
+      });
+      if (res.ok) {
+        alert("Proposal executed successfully with cryptographic audit logging!");
+        fetchData(currentUser);
+      } else {
+        const err = await res.json();
+        alert(`Execution failed: ${err.detail}`);
+      }
+    } catch {
+      alert("Execution error");
+    }
+  };
+
+  useEffect(() => {
+    fetchData(currentUser);
+  }, [currentUser]);
 
   const evaluateAthleteEligibility = async (athId: string) => {
     setEvaluatingAthleteId(athId);
@@ -485,6 +548,14 @@ export default function App() {
             }`}
           >
             <MapPin className="w-4 h-4" /> Facilities
+          </button>
+          <button
+            onClick={() => setActiveTab('agent')}
+            className={`py-2.5 border-b-2 font-medium flex items-center gap-2 ${
+              activeTab === 'agent' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Bot className="w-4 h-4 text-amber-400" /> AI Agent & Policy RAG
           </button>
         </div>
       </header>
@@ -1102,6 +1173,227 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 4: AI Agent & Policy RAG Tab */}
+        {activeTab === 'agent' && (
+          <div className="space-y-6">
+            {/* Header banner */}
+            <div className="bg-gradient-to-r from-navy-900 to-indigo-950 text-white rounded-2xl p-6 shadow-sm border border-navy-800 space-y-3">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-base">
+                <Sparkles className="w-5 h-5" /> TrackNet Grounded AI Decision-Support Agent
+              </div>
+              <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
+                Empowered with <b>100% Citation Enforcement</b> over verified government sports guidelines and circulars. 
+                Strictly read-only execution by default; state mutations emit non-autonomous <b>Action Proposals</b> requiring explicit officer approval tokens.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1 text-xs">
+                <span className="bg-navy-800/90 text-slate-300 px-3 py-1 rounded-full border border-navy-700">
+                  Role: <b>{currentUser.role}</b> ({currentUser.district_id || currentUser.state_id || 'ALL INDIA'})
+                </span>
+                <span className="bg-emerald-950/80 text-emerald-300 px-3 py-1 rounded-full border border-emerald-800">
+                  RBAC Boundary: Scoped
+                </span>
+                <span className="bg-amber-950/80 text-amber-300 px-3 py-1 rounded-full border border-amber-800">
+                  Autonomous Mutations: Blocked
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Prompt Starters */}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="text-slate-500 font-semibold self-center">Prompt Starters:</span>
+              <button
+                onClick={() => setAgentPrompt("What are the talent identification benchmarks and verification requirements?")}
+                className="bg-white hover:bg-slate-50 border text-slate-700 px-2.5 py-1 rounded-lg shadow-2xs"
+              >
+                Talent ID Benchmarks (MYAS Guidelines)
+              </button>
+              <button
+                onClick={() => setAgentPrompt("Check pipeline bottlenecks and identify sport gap cells exceeding peer median")}
+                className="bg-white hover:bg-slate-50 border text-slate-700 px-2.5 py-1 rounded-lg shadow-2xs"
+              >
+                Pipeline Gap Diagnosis
+              </button>
+              <button
+                onClick={() => setAgentPrompt("List overdue equipment loans requiring officer inspection")}
+                className="bg-white hover:bg-slate-50 border text-slate-700 px-2.5 py-1 rounded-lg shadow-2xs"
+              >
+                Overdue Equipment Audit
+              </button>
+              <button
+                onClick={() => setAgentPrompt("Verify athlete Aarav Patil based on State Youth Boxing Championship gold medal")}
+                className="bg-white hover:bg-slate-50 border text-slate-700 px-2.5 py-1 rounded-lg shadow-2xs"
+              >
+                Draft Athlete Verification Proposal
+              </button>
+            </div>
+
+            {/* Agent Query Input Form */}
+            <form onSubmit={handleAgentQuery} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Ask Grounded Assistant (Policy RAG & Scoped Tools)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={agentPrompt}
+                  onChange={(e) => setAgentPrompt(e.target.value)}
+                  placeholder="e.g. Inquire about Khelo India age norms, DPDP minor privacy, or draft an athlete action proposal..."
+                  className="flex-1 border rounded-lg p-2.5 text-xs outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+                />
+                <button
+                  type="submit"
+                  disabled={isAgentLoading}
+                  className="bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Bot className="w-4 h-4" />
+                  {isAgentLoading ? 'Consulting Guidelines...' : 'Ask Assistant'}
+                </button>
+              </div>
+            </form>
+
+            {/* Agent Response Card */}
+            {agentResponse && (
+              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm space-y-5">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-5 h-5 text-indigo-600" />
+                    <span className="font-bold text-slate-900 text-sm">Grounded Decision-Support Answer</span>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    agentResponse.confidence_level === 'HIGH' ? 'bg-emerald-100 text-emerald-800' :
+                    agentResponse.confidence_level === 'MEDIUM' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {agentResponse.confidence_level} Confidence
+                  </span>
+                </div>
+
+                {/* Synthesis Text */}
+                <div className="p-4 bg-slate-50 rounded-xl text-xs text-slate-800 leading-relaxed border border-slate-200/60 font-medium">
+                  {agentResponse.response_text}
+                </div>
+
+                {/* Policy Citations (100% Citation Enforcement) */}
+                {agentResponse.citations && agentResponse.citations.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                      <BookOpen className="w-3.5 h-3.5 text-amber-600" /> Verified Primary Source Citations ({agentResponse.citations.length})
+                    </span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {agentResponse.citations.map((c: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-amber-50/60 border border-amber-200 rounded-lg text-xs space-y-1">
+                          <div className="font-bold text-amber-900">{c.title}</div>
+                          <div className="text-[11px] text-amber-800 font-mono">
+                            {c.source_document} · {c.source_clause}, {c.source_page}
+                          </div>
+                          <p className="text-[11px] text-slate-600 italic">"{c.text_content}"</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tool Calling Execution Trace */}
+                {agentResponse.tool_calls_executed && agentResponse.tool_calls_executed.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                      <Activity className="w-3.5 h-3.5 text-blue-600" /> Read-Only Tool Executions ({agentResponse.tool_calls_executed.length})
+                    </span>
+                    <div className="space-y-2">
+                      {agentResponse.tool_calls_executed.map((tc: any, idx: number) => (
+                        <div key={idx} className="p-2.5 bg-slate-100 rounded-lg font-mono text-[11px] text-slate-700 flex justify-between items-center">
+                          <span><b>Tool:</b> {tc.tool}</span>
+                          <span className="text-slate-500">Output: {JSON.stringify(tc.result).slice(0, 80)}...</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Proposed Actions (Maker-Checker Approval Token) */}
+                {agentResponse.proposed_actions && agentResponse.proposed_actions.length > 0 && (
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl space-y-3">
+                    <div className="flex items-center gap-1.5 text-purple-900 font-bold text-xs">
+                      <Lock className="w-4 h-4 text-purple-700" /> Non-Autonomous Action Proposal Generated
+                    </div>
+                    <p className="text-xs text-purple-800">
+                      The agent proposed a mutation. Per system safety rules, state changes are blocked without human officer sanction.
+                    </p>
+                    {agentResponse.proposed_actions.map((pa: any) => (
+                      <div key={pa.proposal_id} className="bg-white p-3 rounded-lg border border-purple-200 flex justify-between items-center text-xs">
+                        <div>
+                          <span className="font-bold text-slate-900">{pa.action_type}</span>
+                          <p className="text-[11px] font-mono text-slate-500">Token: {pa.approval_token}</p>
+                        </div>
+                        <button
+                          onClick={() => handleExecuteProposal(pa.proposal_id, pa.approval_token)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 shadow-sm"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" /> Officer Sanction & Execute
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="pt-2 border-t text-[10px] text-slate-400 flex justify-between">
+                  <span>Cryptographic Audit Proof: {agentResponse.audit_hash}</span>
+                  <span>Model: TrackNet-Assistant-v1 (Zero PII Logging)</span>
+                </div>
+              </div>
+            )}
+
+            {/* Action Proposals Backlog & Audit Queue */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Human Officer Action Proposals Backlog</h3>
+                  <p className="text-xs text-slate-500">
+                    Transparent queue of mutations drafted by assistant. Requires explicit approval token to execute.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-slate-500">{agentProposals.length} proposal(s)</span>
+              </div>
+
+              {agentProposals.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No active action proposals pending officer review.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {agentProposals.map((prop) => (
+                    <div key={prop.id} className="p-4 border rounded-xl bg-slate-50/50 space-y-2 text-xs">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="font-bold text-slate-900">{prop.action_type}</span>
+                          <p className="text-[11px] text-slate-500">Target: {prop.target_entity} · ID: {prop.target_id}</p>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          prop.status === 'EXECUTED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {prop.status}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600"><b>Reason:</b> {prop.reasoning}</p>
+                      <div className="font-mono text-[10px] text-slate-400">Token: {prop.approval_token}</div>
+
+                      {prop.status !== 'EXECUTED' && (
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            onClick={() => handleExecuteProposal(prop.id, prop.approval_token)}
+                            className="bg-navy-900 hover:bg-navy-800 text-white px-3 py-1 rounded text-xs font-semibold flex items-center gap-1 shadow-sm"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" /> Authorize Proposal
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

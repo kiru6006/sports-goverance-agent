@@ -153,6 +153,35 @@ class OutboxMessage(Base):
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+# --- PHASE 4 ENTITIES ---
+
+class PolicyChunk(Base):
+    __tablename__ = "policy_chunks"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_document = Column(String, nullable=False)   # e.g., MYAS Khelo India Operational Guidelines 2024
+    source_page = Column(String, nullable=False)       # e.g., Page 28
+    source_clause = Column(String, nullable=False)     # e.g., Clause 4.2
+    title = Column(String, nullable=False)
+    text_content = Column(Text, nullable=False)
+    keywords_json = Column(Text, nullable=False)      # Keywords/terms for lexical + semantic retrieval
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class ActionProposal(Base):
+    __tablename__ = "action_proposals"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    action_type = Column(String, nullable=False)       # VERIFY_ATHLETE, ISSUE_EQUIPMENT, APPLY_OPPORTUNITY
+    target_entity = Column(String, nullable=False)     # Athlete, EquipmentLoan, OpportunityApplication
+    target_id = Column(String, nullable=False)
+    proposed_payload_json = Column(Text, nullable=False)
+    reasoning = Column(Text, nullable=False)
+    citations_json = Column(Text, nullable=False)
+    status = Column(String, default="PENDING_APPROVAL") # PENDING_APPROVAL, APPROVED, REJECTED, EXECUTED
+    approval_token = Column(String, unique=True, index=True, nullable=False)
+    created_by_agent = Column(String, default="TrackNet-Assistant-v1")
+    approved_by = Column(String, ForeignKey("users.id"), nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 # Existing Phase 1 & 2 Entities
 class Population(Base):
     __tablename__ = "population"

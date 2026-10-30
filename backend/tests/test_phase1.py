@@ -2,7 +2,7 @@ import datetime
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from app.core.db import init_db
+from app.core.db import init_db, SessionLocal
 from app.core.seed_phase1 import seed_registry_data
 from app.core.age_bands import get_age_band
 
@@ -45,14 +45,18 @@ def test_duplicate_detection_returns_candidates_never_auto_merges():
 
 def test_verification_state_machine_transitions():
     """Invalid transitions return 409; valid transitions transition state."""
-    # Find athlete in VERIFIED
-    res = client.get("/api/v1/registry/athletes", headers={"x-user-id": "pune_dso"})
-    athletes = res.json()
-    ath = next((a for a in athletes if a["verification_status"] == "VERIFIED"), athletes[0])
+    # Query an athlete and set verification_status to VERIFIED explicitly for the test
+    db = SessionLocal()
+    from app.models.entities import Athlete
+    test_ath = db.query(Athlete).first()
+    test_ath.verification_status = "VERIFIED"
+    db.commit()
+    ath_id = test_ath.id
+    db.close()
     
     # Try invalid direct jump: VERIFIED -> REJECTED (must go through UNDER_REVIEW)
     inv_res = client.post(
-        f"/api/v1/registry/athletes/{ath['id']}/verify",
+        f"/api/v1/registry/athletes/{ath_id}/verify",
         json={"target_status": "REJECTED", "reason": "Arbitrary rejection"},
         headers={"x-user-id": "pune_dso"}
     )
@@ -61,7 +65,7 @@ def test_verification_state_machine_transitions():
 
     # Valid: VERIFIED -> UNDER_REVIEW
     valid_res = client.post(
-        f"/api/v1/registry/athletes/{ath['id']}/verify",
+        f"/api/v1/registry/athletes/{ath_id}/verify",
         json={"target_status": "UNDER_REVIEW", "reason": "Annual re-verification"},
         headers={"x-user-id": "pune_dso"}
     )

@@ -293,3 +293,51 @@ class AuditLogEntry(BaseModel):
     target_id: str
     payload_hash: str
     prev_hash: Optional[str]
+
+# --- PHASE 4 DTOs ---
+
+class PolicyCitation(BaseModel):
+    source_document: str
+    source_page: str
+    source_clause: str
+    title: str
+    relevance_score: float
+
+class AgentChatRequest(BaseModel):
+    prompt: str
+    district_filter: Optional[str] = None
+    sport_filter: Optional[str] = None
+
+class AgentChatResponse(BaseModel):
+    response_text: str
+    tool_calls_executed: List[Dict[str, Any]]
+    citations: List[PolicyCitation]
+    proposed_actions: List[Dict[str, Any]] = []
+    confidence_level: str
+    audit_hash: str
+
+class CreateProposalRequest(BaseModel):
+    action_type: str
+    target_entity: str
+    target_id: str
+    proposed_payload: Dict[str, Any]
+    reasoning: str
+    citations: List[Dict[str, str]]
+
+class ActionProposalResponse(BaseModel):
+    id: str
+    action_type: str
+    target_entity: str
+    target_id: str
+    proposed_payload: Dict[str, Any]
+    reasoning: str
+    citations: List[Dict[str, str]]
+    status: str
+    approval_token: str
+    created_by_agent: str
+    created_at: str
+    executed_at: Optional[str]
+
+class ExecuteProposalRequest(BaseModel):
+    approval_token: str
+    approval_notes: str

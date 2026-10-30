@@ -8,8 +8,8 @@
 | **Phase 1** | Unified Registry & Deduplication Engine | ✅ PASSED | Pytest suite: 16/16 tests passed (Trigram dedup, State machine 409, Coach negative check, Append-only timeline, Derived age bands) |
 | **Phase 2** | Pipeline Diagnosis, Funnels & Gap Heatmaps | ✅ PASSED | Pytest suite: 21/21 tests passed (Cumulative conversion funnel, Peer median gap analysis, Small-cell privacy suppression, Append-only equipment loans) |
 | **Phase 3** | Support Linkage, Schemes & Maker-Checker | ✅ PASSED | Pytest suite: 28/28 tests passed (Deterministic rules, Maker-checker 403, Immutability 409, Revocation 409, Zero-PII Outbox) |
-| **Phase 4** | Grounded Agent Layer & Action Proposals | 🔄 IN PROGRESS | Agent tools, Policy RAG, Dry-run preview, Explainable proposals |
-| **Phase 5** | State Adapters & Offline PWA Capabilities | ⏳ PENDING | - |
+| **Phase 4** | Grounded Agent Layer & Action Proposals | ✅ PASSED | Pytest suite: 33/33 tests passed (Policy RAG 100% citation, Read-only tool calling, Non-autonomous action proposal tokens, Replay protection 409) |
+| **Phase 5** | State Adapters & Offline PWA Capabilities | ⏳ READY | Scaffolding complete; waiting for Phase 5 approval |
 | **Phase 6** | Pilot Hardening, Security ASVS & Chaos Drill | ⏳ PENDING | - |
 
 ---
