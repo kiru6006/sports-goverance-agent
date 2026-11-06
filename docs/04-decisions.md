@@ -5,7 +5,7 @@ This document records ambiguous architecture and domain calls, the reasoning, an
 ---
 
 ## Decision 001: Technology Stack Standardization
-- **Context**: The concept documents in `IDEAS.md` / `PLANS.md` referenced multiple alternatives (e.g. Next.js vs Angular).
+- **Context**: The concept documents in [`docs/03-ideas.md`](03-ideas.md) / [`docs/01-plans.md`](01-plans.md) referenced multiple alternatives (e.g. Next.js vs Angular).
 - **Ruling**: Adopt **React 18 + Vite + TypeScript** for the web frontend and **Python 3.11+ / FastAPI** for the core backend API, aligned with user standards and established production patterns (InsureOps).
 - **Rationale**: Clean separation between client presentation and domain orchestration; facilitates rapid prototyping, high-performance client state with responsive UI, native integration with Python agent tooling, and support for containerized or static GitHub Pages preview with mock fallback.
 

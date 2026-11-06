@@ -17,11 +17,11 @@
 
 ## Phase 0 Checklist
 
-- [x] Ground rules and invariant enforcement established (`CLAUDE.md`)
-- [x] Architecture Decision Records (`DECISIONS.md`)
-- [x] Assumptions and risk mitigation log (`docs/ASSUMPTIONS.md`)
-- [x] Known gaps tracking (`docs/KNOWN_GAPS.md`)
-- [x] Documentation specifications (`docs/01-constraints.md` to `docs/04-phases.md`)
+- [x] Ground rules and invariant enforcement established ([`docs/06-ground-rules.md`](06-ground-rules.md))
+- [x] Architecture Decision Records ([`docs/04-decisions.md`](04-decisions.md))
+- [x] Unified specifications, constraints & data models ([`docs/02-specifications.md`](02-specifications.md))
+- [x] Implementation blueprint & domain criteria ([`docs/03-ideas.md`](03-ideas.md))
+- [x] Concept note & policy alignment ([`docs/01-plans.md`](01-plans.md))
 - [x] Backend FastAPI scaffold with SQLAlchemy & RBAC (`backend/app/main.py`)
 - [x] Audit middleware and field encryption layer (`backend/app/core/crypto.py`)
 - [x] Synthetic seed generation (`backend/app/core/db.py`)

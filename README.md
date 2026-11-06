@@ -88,19 +88,15 @@ flowchart TB
 ```text
 sports-network-agent/
 ├── CLAUDE.md                    # Core ground rules & invariants (auto-loaded)
-├── DECISIONS.md                 # Architecture Decision Records (ADRs)
-├── PROGRESS.md                  # Milestone status & phase gate tracker
 ├── README.md                    # System pitch, architecture, and run instructions
-├── PLANS.md                     # Ministry concept note & policy alignment
-├── IDEAS.md                     # Implementation blueprint & acceptance criteria
 │
-├── docs/                        # Specifications & Compliance
-│   ├── ASSUMPTIONS.md           # Operational assumptions & default values
-│   ├── KNOWN_GAPS.md            # Deferred capabilities & gap tracker
-│   ├── 01-constraints.md        # Hard security, privacy & legal constraints
-│   ├── 02-data-model.md         # Data models, entities & encryption policies
-│   ├── 03-screens.md            # UI design specifications
-│   └── 04-phases.md             # AI SDLC phase definitions & gates
+├── docs/                        # Structured System Documentation & Specifications
+│   ├── 01-plans.md              # Ministry concept note & policy alignment
+│   ├── 02-specifications.md     # Constraints, data models, screen catalog & architecture
+│   ├── 03-ideas.md              # Implementation blueprint & acceptance criteria
+│   ├── 04-decisions.md          # Architecture Decision Records (ADRs)
+│   ├── 05-progress.md           # Milestone status & phase gate tracker
+│   └── 06-ground-rules.md       # Hard security, privacy & legal invariants
 │
 ├── backend/                     # Python 3.11+ FastAPI Backend
 │   ├── requirements.txt         # Core dependencies
@@ -122,8 +118,21 @@ sports-network-agent/
         ├── App.tsx              # Router & layout
         ├── components/          # Reusable UI components
         ├── pages/               # Views (Landing, Diagnosis, Registry, Agent, Approvals)
-        └── services/            # API client & mock data fallback
+        └── data/                # Seed mock fixtures for offline preview
 ```
+
+---
+
+## 📚 Documentation Index
+
+All primary system documentation is maintained under the [`docs/`](docs/) directory:
+
+1. [**01-plans.md**](docs/01-plans.md) — Concept Note for the Ministry of Youth Affairs and Sports, problem statement, operating loop, and policy levers.
+2. [**02-specifications.md**](docs/02-specifications.md) — Unified constraints, entity privacy tiers, screen catalog (S-00 to S-84), and architecture roadmaps.
+3. [**03-ideas.md**](docs/03-ideas.md) — Exhaustive domain blueprint, functional requirements, and acceptance criteria.
+4. [**04-decisions.md**](docs/04-decisions.md) — Architecture Decision Records (ADRs: stack standardization, minor 404, small-cell suppression, maker-checker).
+5. [**05-progress.md**](docs/05-progress.md) — Milestone status, test suites, and phase verification gates (Phases 0–7).
+6. [**06-ground-rules.md**](docs/06-ground-rules.md) — Absolute constraints, DPDP Act 2023 compliance, and engineering conventions.
 
 ---
 
@@ -184,36 +193,36 @@ All mandatory government sports intelligence and governance capabilities have be
 
 | Capability Area | Core Feature | Status | Specification File |
 | :--- | :--- | :--- | :--- |
-| **Talent & Registry** | Fuzzy Trigram Deduplication | ✅ Implemented | `docs/04-phases.md#phase-1` |
-| | Minor Concealment (DPDP Act HTTP 404) | ✅ Implemented | `docs/01-constraints.md` |
-| | Verification State Machine (`SUBMITTED` $\to$ `UNDER_REVIEW` $\to$ `VERIFIED` / `REJECTED`) | ✅ Implemented | `docs/02-data-model.md` |
-| | Candidate Rejection Audit & Reason Reports | ✅ Implemented | `PROGRESS.md#phase-7` |
-| | Derived Age-Band Classification (`U-14`, `U-17`, `U-19`, `SENIOR`) | ✅ Implemented | `docs/02-data-model.md` |
-| **Pipeline & Analytics** | District $\times$ Sport $\times$ Age Band Gap Diagnosis | ✅ Implemented | `docs/04-phases.md#phase-2` |
-| | Small-Cell Privacy Suppression ($<5$ counts redacted) | ✅ Implemented | `docs/01-constraints.md` |
-| | Cumulative Athlete Conversion Funnel (Identified $\ge$ Verified $\ge$ Supported $\ge$ Progressed) | ✅ Implemented | `docs/04-phases.md#phase-2` |
-| | Peer Median Bottleneck Detection | ✅ Implemented | `docs/03-screens.md#screen-3` |
-| **Infrastructure & Assets**| Equipment Inventory & Custody Tracking | ✅ Implemented | `docs/04-phases.md#phase-2` |
-| | Overdue Equipment Loan Flagging & Fines | ✅ Implemented | `docs/04-phases.md#phase-2` |
-| | Training Facilities & Venue Capacity Ledger | ✅ Implemented | `docs/02-data-model.md` |
-| **Schemes & Opportunities**| Deterministic Scheme Rule Evaluator with Citations | ✅ Implemented | `docs/04-phases.md#phase-3` |
-| | Maker-Checker Rule Authorization (`approver_id != author_id`) | ✅ Implemented | `docs/04-phases.md#phase-3` |
-| | Transactional Outbox with Zero-PII Tokens | ✅ Implemented | `docs/04-phases.md#phase-3` |
-| | Support Demands & Services Needed / Offered Matrix | ✅ Implemented | `PROGRESS.md#phase-7` |
-| **Communication & Network**| Cross-Profile Contact Mapping (Player, Coach, Specialist) | ✅ Implemented | `PROGRESS.md#phase-7` |
-| | Direct Peer-to-Peer Messaging Drawer | ✅ Implemented | `PROGRESS.md#phase-7` |
-| **AI Ecosystem & Policy** | Read-Only Grounded Policy RAG Agent | ✅ Implemented | `docs/04-phases.md#phase-4` |
-| | Two-Person `ActionProposal` Approval Queue | ✅ Implemented | `DECISIONS.md#decision-005` |
-| | Anti-Hallucination 100% Policy Citation Enforcement | ✅ Implemented | `docs/04-phases.md#phase-4` |
-| **Field Resilience & Sync** | State Adapters & Offline PWA Sync Protocol | ✅ Implemented | `docs/04-phases.md#phase-5` |
-| | Multi-Lingual Interface (English, Hindi, Marathi) | ✅ Implemented | `docs/03-screens.md#screen-1` |
-| | Deterministic Conflict Resolution Matrix | ✅ Implemented | `docs/04-phases.md#phase-5` |
-| **Security & ASVS L2** | SHA-256 Tamper-Evident Audit Hash Chain | ✅ Implemented | `docs/04-phases.md#phase-6` |
-| | Emergency AI Agent Kill-Switch | ✅ Implemented | `docs/04-phases.md#phase-6` |
-| | Right-to-Erasure (DPDP Act) Anonymization Workflow | ✅ Implemented | `docs/04-phases.md#phase-6` |
-| | Automated Chaos Drill & Recovery Engine | ✅ Implemented | `docs/04-phases.md#phase-6` |
-| **Modern UX Design** | Responsive Collapsible Left-Side Navigation Bar | ✅ Implemented | `frontend/src/App.tsx` |
-| | Accessible High-Contrast Theme with Inter Typography | ✅ Implemented | `frontend/tailwind.config.js` |
+| **Talent & Registry** | Fuzzy Trigram Deduplication | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Minor Concealment (DPDP Act HTTP 404) | ✅ Implemented | [`docs/02-specifications.md#1-statutory-constraints`](docs/02-specifications.md#1-statutory-constraints--non-negotiable-invariants) |
+| | Verification State Machine (`SUBMITTED` $\to$ `UNDER_REVIEW` $\to$ `VERIFIED` / `REJECTED`) | ✅ Implemented | [`docs/02-specifications.md#2-core-entities`](docs/02-specifications.md#2-core-entities--privacy-tiers) |
+| | Candidate Rejection Audit & Reason Reports | ✅ Implemented | [`docs/05-progress.md#phase-7`](docs/05-progress.md#ai-sdlc-phase-gate-status) |
+| | Derived Age-Band Classification (`U-14`, `U-17`, `U-19`, `SENIOR`) | ✅ Implemented | [`docs/02-specifications.md#2-core-entities`](docs/02-specifications.md#2-core-entities--privacy-tiers) |
+| **Pipeline & Analytics** | District $\times$ Sport $\times$ Age Band Gap Diagnosis | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Small-Cell Privacy Suppression ($<5$ counts redacted) | ✅ Implemented | [`docs/02-specifications.md#1-statutory-constraints`](docs/02-specifications.md#1-statutory-constraints--non-negotiable-invariants) |
+| | Cumulative Athlete Conversion Funnel (Identified $\ge$ Verified $\ge$ Supported $\ge$ Progressed) | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Peer Median Bottleneck Detection | ✅ Implemented | [`docs/02-specifications.md#3-screen-catalog`](docs/02-specifications.md#3-screen--functional-catalog) |
+| **Infrastructure & Assets**| Equipment Inventory & Custody Tracking | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Overdue Equipment Loan Flagging & Fines | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Training Facilities & Venue Capacity Ledger | ✅ Implemented | [`docs/02-specifications.md#2-core-entities`](docs/02-specifications.md#2-core-entities--privacy-tiers) |
+| **Schemes & Opportunities**| Deterministic Scheme Rule Evaluator with Citations | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Maker-Checker Rule Authorization (`approver_id != author_id`) | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Transactional Outbox with Zero-PII Tokens | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Support Demands & Services Needed / Offered Matrix | ✅ Implemented | [`docs/05-progress.md#phase-7`](docs/05-progress.md#ai-sdlc-phase-gate-status) |
+| **Communication & Network**| Cross-Profile Contact Mapping (Player, Coach, Specialist) | ✅ Implemented | [`docs/05-progress.md#phase-7`](docs/05-progress.md#ai-sdlc-phase-gate-status) |
+| | Direct Peer-to-Peer Messaging Drawer | ✅ Implemented | [`docs/05-progress.md#phase-7`](docs/05-progress.md#ai-sdlc-phase-gate-status) |
+| **AI Ecosystem & Policy** | Read-Only Grounded Policy RAG Agent | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Two-Person `ActionProposal` Approval Queue | ✅ Implemented | [`docs/04-decisions.md#decision-005`](docs/04-decisions.md#decision-005-read-mostly-agent-with-actionproposal-human-gates) |
+| | Anti-Hallucination 100% Policy Citation Enforcement | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| **Field Resilience & Sync** | State Adapters & Offline PWA Sync Protocol | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Multi-Lingual Interface (English, Hindi, Marathi) | ✅ Implemented | [`docs/02-specifications.md#3-screen-catalog`](docs/02-specifications.md#3-screen--functional-catalog) |
+| | Deterministic Conflict Resolution Matrix | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| **Security & ASVS L2** | SHA-256 Tamper-Evident Audit Hash Chain | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Emergency AI Agent Kill-Switch | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Right-to-Erasure (DPDP Act) Anonymization Workflow | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| | Automated Chaos Drill & Recovery Engine | ✅ Implemented | [`docs/02-specifications.md#4-phase-roadmaps`](docs/02-specifications.md#4-phase-roadmaps--verification-status) |
+| **Modern UX Design** | Responsive Collapsible Left-Side Navigation Bar | ✅ Implemented | [`frontend/src/App.tsx`](frontend/src/App.tsx) |
+| | Accessible High-Contrast Theme with Inter Typography | ✅ Implemented | [`frontend/tailwind.config.js`](frontend/tailwind.config.js) |
 
 ---
 
