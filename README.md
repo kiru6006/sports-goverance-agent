@@ -174,7 +174,7 @@ Open `http://localhost:5173` in your browser.
 ## 🌐 Public Live Demo & Deployment
 
 - **GitHub Pages**: [https://kiru6006.github.io/sports-goverance-agent/](https://kiru6006.github.io/sports-goverance-agent/)
-- **Automated CI/CD**: Automatic GitHub Actions build & deployment to `gh-pages` branch on every push to `main` ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)).
+- **Automated CI/CD**: Automatic GitHub Actions build & deployment to GitHub Pages on every push to `main` ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)). (Ensure GitHub Repo **Settings** $\to$ **Pages** $\to$ **Build and deployment** is set to **GitHub Actions**).
 
 ---
 
